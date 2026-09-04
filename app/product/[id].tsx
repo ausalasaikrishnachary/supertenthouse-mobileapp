@@ -6899,6 +6899,7 @@
 
 // app/product/[id].tsx
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { ProductAddons } from '@/components/ProductAddons';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Dimensions, FlatList, Share, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useLocalSearchParams } from 'expo-router';
@@ -7392,6 +7393,8 @@ export default function ProductDetailScreen() {
               </TouchableOpacity>
             </View>
           </View>
+
+          <ProductAddons addons={product.addons} imageUrl={getFullImageUrl} />
 
           {/* ─── Tabs ──────────────────────────────────────────────────────────── */}
           <View style={styles.tabsRow}>

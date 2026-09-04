@@ -21,6 +21,8 @@ interface OrderItem {
 }
 
 interface Order {
+  orderSource: 'customer' | 'admin';
+  invoice_number?: string;
   id: number;
   order_number: string;
   customer_id: string;
@@ -90,7 +92,7 @@ export default function OrdersScreen() {
 
     try {
       setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/customer-orders/customer/${customerId}`);
+      const response = await axios.get(`${API_BASE_URL}/customer-orders/customer/${customerId}`, { headers: { Authorization: `Bearer ${authState.token}` } });
       console.log('📦 Orders response:', response.data);
       
       let ordersData = [];
@@ -120,7 +122,7 @@ export default function OrdersScreen() {
     } finally {
       setLoading(false);
     }
-  }, [customerId, show]);
+  }, [customerId, authState.token, show]);
 
   useEffect(() => {
     fetchOrders();
@@ -269,12 +271,17 @@ export default function OrdersScreen() {
           return (
             <TouchableOpacity 
               style={styles.orderCard} 
-              onPress={() => router.push(`/order-details/${item.id}`)} 
+              onPress={() => router.push(`/order-details/${item.id}?source=${item.orderSource || 'customer'}`)}
               activeOpacity={0.9}
             >
               <View style={styles.orderHeader}>
-                <View>
+                <View style={{ flex: 1 }}>
                   <Text style={styles.orderNumber}>#{item.order_number || item.id}</Text>
+                  {item.invoice_number ? (
+                    <Text style={{ fontSize: 11, fontFamily: 'Inter-Medium', color: COLORS.primary?.[600] || '#4F46E5', marginTop: 2 }}>
+                      Invoice Number: {item.invoice_number}
+                    </Text>
+                  ) : null}
                   <Text style={styles.orderDate}>{formatDate(item.created_at)}</Text>
                 </View>
                 <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
@@ -314,7 +321,7 @@ export default function OrdersScreen() {
             </TouchableOpacity>
           );
         }}
-        keyExtractor={(item, index) => (item.id ? `order-${item.id}` : `order-${index}`)}
+        keyExtractor={(item) => `${item.orderSource || 'customer'}-${item.id}`}
         ListEmptyComponent={
           <View style={{ flex: 1, justifyContent: 'center', paddingTop: 60 }}>
             <EmptyState

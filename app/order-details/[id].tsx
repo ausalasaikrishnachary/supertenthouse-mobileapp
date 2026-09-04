@@ -1586,6 +1586,8 @@ interface OrderItem {
 }
 
 interface Order {
+  orderSource: 'customer' | 'admin';
+  invoice_number?: string;
   id: number;
   order_number: string;
   customer_id: string;
@@ -1634,7 +1636,7 @@ const statusConfig: Record<string, { color: string; bg: string; label: string; i
 };
 
 export default function OrderDetailsScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, source = 'customer' } = useLocalSearchParams<{ id: string; source?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { show } = useToast();
@@ -1646,7 +1648,7 @@ export default function OrderDetailsScreen() {
 
   // ─── Fetch order details from API ──────────────────────────────────────────
   const fetchOrderDetails = useCallback(async () => {
-    if (!id) {
+    if (!id || !['customer', 'admin'].includes(source)) {
       setError('Invalid order ID');
       setLoading(false);
       return;
@@ -1655,9 +1657,12 @@ export default function OrderDetailsScreen() {
     try {
       setLoading(true);
       setError(null);
+      setOrder(null);
       
       console.log('📦 Fetching order details for ID:', id);
-      const response = await axios.get(`${API_BASE_URL}/customer-orders/${id}`);
+      const response = await axios.get(`${API_BASE_URL}/customer-orders/${id}`, {
+        params: { source }, headers: { Authorization: `Bearer ${authState.token}` },
+      });
       
       if (response.data.success && response.data.data) { 
         const orderData = response.data.data;
@@ -1668,7 +1673,7 @@ export default function OrderDetailsScreen() {
           grand_total: parseFloat(orderData.grand_total) || 0,
           subtotal: parseFloat(orderData.subtotal) || 0,
           delivery_charge: parseFloat(orderData.delivery_charge) || 0,
-          gst: parseFloat(orderData.gst) || 0,
+          gst: parseFloat(orderData.gst ?? orderData.tax) || 0,
           coupon_discount: parseFloat(orderData.coupon_discount) || 0,
         };
         setOrder(parsedOrder);
@@ -1682,7 +1687,7 @@ export default function OrderDetailsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, source, authState.token]);
 
   useEffect(() => {
     fetchOrderDetails();
@@ -1763,7 +1768,7 @@ export default function OrderDetailsScreen() {
 
       const invoiceData: InvoiceData = {
         orderId: order.id,
-        orderSource: 'customer',
+        orderSource: order.orderSource,
         orderNumber: order.order_number || String(order.id),
         customerName: order.customer_name || 'N/A',
         customerEmail: order.customer_email || 'N/A',
@@ -1833,7 +1838,7 @@ export default function OrderDetailsScreen() {
 
       const invoiceData: InvoiceData = {
         orderId: order.id,
-        orderSource: 'customer',
+        orderSource: order.orderSource,
         orderNumber: order.order_number || String(order.id),
         customerName: order.customer_name || 'N/A',
         customerEmail: order.customer_email || 'N/A',
@@ -1954,9 +1959,14 @@ export default function OrderDetailsScreen() {
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <ArrowLeft color={COLORS.neutral[800]} size={24} />
         </TouchableOpacity>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.title}>Order Details</Text>
           <Text style={styles.orderNum}>#{order.order_number || order.id}</Text>
+          {order.invoice_number ? (
+            <Text style={{ fontSize: 12, fontFamily: 'Inter-Medium', color: COLORS.primary[600], marginTop: 2 }}>
+              Invoice Number: {order.invoice_number}
+            </Text>
+          ) : null}
         </View>
       </View>
 

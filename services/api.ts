@@ -8856,6 +8856,8 @@ const mapCategory = (apiCategory: any): Category => {
 };
 
 // ─── Map backend product to frontend Product type ──────────────
+import { normalizeProductAddons } from '../utils/productAddons';
+
 const mapProduct = (apiProduct: any): Product => {
   const price = Number(apiProduct.price) || 0;
   const originalPrice = Number(apiProduct.original_price) || Number(apiProduct.originalPrice) || price;
@@ -8909,6 +8911,7 @@ const mapProduct = (apiProduct: any): Product => {
   }
 
   return {
+    addons: normalizeProductAddons(apiProduct.addons),
     id: apiProduct.id?.toString() || '',
     name: apiProduct.product_name || apiProduct.name || 'Product',
     description: description,

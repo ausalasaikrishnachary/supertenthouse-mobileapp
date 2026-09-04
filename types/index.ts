@@ -908,6 +908,7 @@ export type Review = {
 };
 
 export type Product = {
+  addons?: import('../utils/productAddons').ProductAddon[];
   id: string;
   name: string;
   categoryId: string;
