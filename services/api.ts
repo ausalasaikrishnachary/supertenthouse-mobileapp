@@ -8969,6 +8969,11 @@ const mapProduct = (apiProduct: any): Product => {
 
 // ─── Map backend package to frontend Package type ──────────────
 const mapPackage = (apiPackage: any): Package => {
+  let customServices: string[] = [];
+  try {
+    const values = typeof apiPackage.custom_services === 'string' ? JSON.parse(apiPackage.custom_services) : apiPackage.custom_services;
+    customServices = Array.isArray(values) ? values.filter(value => typeof value === 'string' && value.trim()) : [];
+  } catch { customServices = []; }
   let includes: string[] = [];
   let catering: any = false;
   let stageDecoration: any = false;
@@ -9082,6 +9087,7 @@ const mapPackage = (apiPackage: any): Package => {
     guestCapacity: Number(apiPackage.guest_capacity) || 0,
     description: apiPackage.description || '',
     includes: includes,
+    customServices,
     catering: catering,
     stageDecoration: stageDecoration,
     flowerDecoration: flowerDecoration,

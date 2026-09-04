@@ -1549,9 +1549,10 @@
 // app/order-details/[id].tsx
 // app/order-details/[id].tsx
 // app/order-details/[id].tsx
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { normalizeOrderStatus, orderTimeline } from '@/utils/orderTimeline';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, Platform, Alert } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { 
   ArrowLeft, 
   Phone, 
@@ -1645,9 +1646,14 @@ export default function OrderDetailsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const requestVersion = useRef(0);
+  const invoiceBusy = useRef(false);
 
   // ─── Fetch order details from API ──────────────────────────────────────────
   const fetchOrderDetails = useCallback(async () => {
+    const version = ++requestVersion.current;
+    if (authState.isLoading) return;
+    if (!authState.token) { setOrder(null); setError('Please sign in to view your order'); setLoading(false); return; }
     if (!id || !['customer', 'admin'].includes(source)) {
       setError('Invalid order ID');
       setLoading(false);
@@ -1664,12 +1670,13 @@ export default function OrderDetailsScreen() {
         params: { source }, headers: { Authorization: `Bearer ${authState.token}` },
       });
       
+      if (version !== requestVersion.current) return;
       if (response.data.success && response.data.data) { 
         const orderData = response.data.data;
         const parsedOrder = {
           ...orderData,
           items: Array.isArray(orderData.items) ? orderData.items : [],
-          status: orderData.status || 'pending',
+          status: normalizeOrderStatus(orderData.status) as Order['status'],
           grand_total: parseFloat(orderData.grand_total) || 0,
           subtotal: parseFloat(orderData.subtotal) || 0,
           delivery_charge: parseFloat(orderData.delivery_charge) || 0,
@@ -1682,16 +1689,24 @@ export default function OrderDetailsScreen() {
         setError('Order not found');
       }
     } catch (error: any) {
+      if (version !== requestVersion.current) return;
       console.error('Failed to fetch order details:', error);
       setError(error.response?.data?.message || 'Failed to load order details');
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
-  }, [id, source, authState.token]);
+  }, [id, source, authState.token, authState.isLoading]);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     fetchOrderDetails();
-  }, [fetchOrderDetails]);
+    const timer = setInterval(fetchOrderDetails, 30000);
+    if (Platform.OS === 'web') window.addEventListener('focus', fetchOrderDetails);
+    return () => {
+      requestVersion.current++;
+      clearInterval(timer);
+      if (Platform.OS === 'web') window.removeEventListener('focus', fetchOrderDetails);
+    };
+  }, [fetchOrderDetails]));
 
   // ─── Format date ────────────────────────────────────────────────────────────
   const formatDate = (dateString: string) => {
@@ -1716,17 +1731,18 @@ export default function OrderDetailsScreen() {
     return statusConfig[status] || statusConfig.pending;
   };
 
-  const isInvoiceAvailable = order?.status?.toLowerCase() === 'completed';
+  const isInvoiceAvailable = Boolean(order?.invoice_number?.trim());
 
   // ─── Download Invoice ──────────────────────────────────────────────────────
   const handleDownloadInvoice = useCallback(async () => {
+    if (invoiceBusy.current) return;
     if (!order) {
       show('Order not found', 'error');
       return;
     }
 
-    if (order.status?.toLowerCase() !== 'completed') {
-      show('Invoice is available only after the order is completed', 'info');
+    if (!order.invoice_number?.trim()) {
+      show('Invoice has not been generated yet', 'info');
       return;
     }
 
@@ -1805,7 +1821,8 @@ export default function OrderDetailsScreen() {
         },
       };
 
-      await downloadInvoice(invoiceData);
+      invoiceBusy.current = true;
+      await downloadInvoice({ ...invoiceData, invoiceNumber: order.invoice_number }, authState.token);
       show('PDF Invoice downloaded successfully! ✅');
     } catch (error: any) {
       console.error('Error downloading invoice:', error);
@@ -1816,9 +1833,10 @@ export default function OrderDetailsScreen() {
       );
       show('Failed to download invoice: ' + (error.message || 'Unknown error'), 'error');
     } finally {
+      invoiceBusy.current = false;
       setDownloading(false);
     }
-  }, [order, show]);
+  }, [order, show, authState.token]);
 
   // ─── Share Invoice ──────────────────────────────────────────────────────────
   const handleShareInvoice = useCallback(async () => {
@@ -1827,8 +1845,8 @@ export default function OrderDetailsScreen() {
       return;
     }
 
-    if (order.status?.toLowerCase() !== 'completed') {
-      show('Invoice is available only after the order is completed', 'info');
+    if (!order.invoice_number?.trim()) {
+      show('Invoice has not been generated yet', 'info');
       return;
     }
 
@@ -1877,7 +1895,7 @@ export default function OrderDetailsScreen() {
 
       // For mobile, use the share functionality
       if (Platform.OS !== 'web') {
-        await downloadInvoice(invoiceData);
+        await downloadInvoice({ ...invoiceData, invoiceNumber: order.invoice_number }, authState.token);
         show('Invoice shared successfully! ✅');
       } else {
         // Web: Use Web Share API
@@ -1913,7 +1931,7 @@ export default function OrderDetailsScreen() {
     } finally {
       setDownloading(false);
     }
-  }, [order, show]);
+  }, [order, show, authState.token]);
 
   // ─── Loading State ──────────────────────────────────────────────────────────
   if (loading) {
@@ -1987,23 +2005,17 @@ export default function OrderDetailsScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Order Timeline</Text>
         <View style={styles.timeline}>
-          {[
-            { status: 'pending', label: 'Order Placed', date: order.created_at },
-            { status: 'approved', label: 'Order Approved', date: order.status === 'approved' || order.status === 'processing' || order.status === 'completed' ? order.updated_at : null },
-            { status: 'processing', label: 'Processing', date: order.status === 'processing' || order.status === 'completed' ? order.updated_at : null },
-            { status: 'completed', label: 'Completed', date: order.status === 'completed' ? order.updated_at : null },
-          ].map((step, i) => {
+          {orderTimeline(order.status, order.created_at, order.updated_at).map((step, i, steps) => {
             const stepCfg = getStatusConfig(step.status);
             const StepIcon = stepCfg.icon;
-            const isDone = step.date !== null && order.status !== 'rejected' && order.status !== 'cancelled';
-            const isCurrent = order.status === step.status;
+            const { isDone, isCurrent } = step;
             
             return (
               <View key={i} style={styles.timelineItem}>
                 <View style={[styles.timelineIcon, isDone && styles.timelineIconDone, isCurrent && { borderColor: cfg.color, borderWidth: 2 }]}>
                   <StepIcon color={isDone ? COLORS.white : COLORS.neutral[400]} size={16} />
                 </View>
-                {i < 3 && <View style={[styles.timelineLine, isDone && styles.timelineLineDone]} />}
+                {i < steps.length - 1 && <View style={[styles.timelineLine, isDone && steps[i + 1].isDone && styles.timelineLineDone]} />}
                 <View style={styles.timelineContent}>
                   <Text style={[styles.timelineLabel, isDone && styles.timelineLabelDone]}>
                     {step.label}
@@ -2012,7 +2024,7 @@ export default function OrderDetailsScreen() {
                   {step.date ? (
                     <Text style={styles.timelineDate}>{formatDate(step.date)}</Text>
                   ) : (
-                    <Text style={styles.timelinePending}>Pending</Text>
+                    <Text style={styles.timelinePending}>{isCurrent ? 'Current status' : isDone ? 'Reached' : 'Not reached'}</Text>
                   )}
                 </View>
               </View>
@@ -2142,7 +2154,7 @@ export default function OrderDetailsScreen() {
         </View>
       </View>
 
-      {/* Invoice actions are available only after an order is completed. */}
+      {/* Any generated invoice is downloadable, independently of order status. */}
       {isInvoiceAvailable && (
         <View style={styles.actions}>
           <TouchableOpacity

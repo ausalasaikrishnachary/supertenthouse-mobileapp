@@ -2,11 +2,23 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import { API_BASE_URL } from './api';
+import { API_BASE_URL } from '@/constants/api';
+
+async function assertInvoiceResponse(response: Response): Promise<void> {
+  if (response.ok) return;
+  const messages: Record<number, string> = {
+    401: 'Your session has expired. Please sign in again.',
+    403: 'You do not have access to this invoice.',
+    404: 'This order was not found or does not belong to your account.',
+    409: 'The invoice has not been generated yet.',
+  };
+  throw new Error(messages[response.status] || 'Invoice download failed. Please try again.');
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 export interface InvoiceData {
   orderId: number;
+  invoiceNumber?: string;
   orderSource?: 'customer' | 'admin';
   orderNumber: string;
   customerName: string;
@@ -375,25 +387,24 @@ export const generateInvoiceHTML = (data: InvoiceData): string => {
 };
 
 // ─── Download Invoice - Mobile (Using Server API) ───────────────────────────
-export const downloadInvoiceMobile = async (orderData: InvoiceData): Promise<boolean> => {
+export const downloadInvoiceMobile = async (orderData: InvoiceData, token: string): Promise<boolean> => {
   try {
     // Send request to server to generate PDF
     const response = await fetch(`${API_BASE_URL}/invoice/generate-pdf`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify({ orderData }),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to generate PDF: ${response.status} - ${errorText}`);
-    }
+    await assertInvoiceResponse(response);
 
     // Get the PDF as blob
     const blob = await response.blob();
-    const fileName = `Invoice_${orderData.orderNumber}_${Date.now()}.pdf`;
+    if (!blob.type.includes('application/pdf') || !blob.size) throw new Error('Server did not return a valid PDF');
+    const fileName = `Invoice_${(orderData.invoiceNumber || orderData.orderNumber).replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
     
     // Convert blob to base64 using FileReader
     const base64 = await new Promise<string>((resolve, reject) => {
@@ -438,23 +449,22 @@ export const downloadInvoiceMobile = async (orderData: InvoiceData): Promise<boo
 };
 
 // ─── Download Invoice - Web (Using Server API) ──────────────────────────────
-export const downloadInvoiceWeb = async (orderData: InvoiceData): Promise<boolean> => {
+export const downloadInvoiceWeb = async (orderData: InvoiceData, token: string): Promise<boolean> => {
   try {
     const response = await fetch(`${API_BASE_URL}/invoice/generate-pdf`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify({ orderData }),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to generate PDF: ${response.status} - ${errorText}`);
-    }
+    await assertInvoiceResponse(response);
 
     const blob = await response.blob();
-    const fileName = `Invoice_${orderData.orderNumber}_${Date.now()}.pdf`;
+    if (!blob.type.includes('application/pdf') || !blob.size) throw new Error('Server did not return a valid PDF');
+    const fileName = `Invoice_${(orderData.invoiceNumber || orderData.orderNumber).replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
     
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -463,7 +473,7 @@ export const downloadInvoiceWeb = async (orderData: InvoiceData): Promise<boolea
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     
     return true;
   } catch (error) {
@@ -473,12 +483,13 @@ export const downloadInvoiceWeb = async (orderData: InvoiceData): Promise<boolea
 };
 
 // ─── Universal Download Invoice ──────────────────────────────────────────────
-export const downloadInvoice = async (orderData: InvoiceData): Promise<boolean> => {
+export const downloadInvoice = async (orderData: InvoiceData, token: string | null): Promise<boolean> => {
   try {
+    if (!token) throw new Error('Please sign in again to download your invoice');
     if (Platform.OS === 'web') {
-      return await downloadInvoiceWeb(orderData);
+      return await downloadInvoiceWeb(orderData, token);
     } else {
-      return await downloadInvoiceMobile(orderData);
+      return await downloadInvoiceMobile(orderData, token);
     }
   } catch (error) {
     console.error('Error downloading invoice:', error);

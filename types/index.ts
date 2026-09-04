@@ -944,6 +944,7 @@ export type Product = {
 };
 
 export type Package = {
+  customServices?: string[];
   id: string;
   name: string;
   tier: 'Basic' | 'Premium' | 'Luxury' | 'Silver' | 'Gold' | 'Platinum';

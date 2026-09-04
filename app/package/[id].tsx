@@ -7708,11 +7708,11 @@ export default function PackageDetailScreen() {
           </View>
 
           {/* What's Included */}
-          {(pkg.includes && pkg.includes.length > 0) && (
+          {((pkg.includes?.length || 0) + (pkg.customServices?.length || 0) > 0) && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>✨ What's Included</Text>
               <View style={styles.includesGrid}>
-                {pkg.includes.map((inc, i) => {
+                {[...new Set([...(pkg.includes || []), ...(pkg.customServices || [])])].map((inc, i) => {
                   const includeText = typeof inc === 'string' ? inc : String(inc);
                   return (
                     <View key={i} style={styles.includeItem}>
