@@ -1587,7 +1587,7 @@ interface OrderItem {
 }
 
 interface Order {
-  orderSource: 'customer' | 'admin';
+  orderSource: 'customer' | 'admin' | 'salesman';
   invoice_number?: string;
   id: number;
   order_number: string;
@@ -1654,7 +1654,7 @@ export default function OrderDetailsScreen() {
     const version = ++requestVersion.current;
     if (authState.isLoading) return;
     if (!authState.token) { setOrder(null); setError('Please sign in to view your order'); setLoading(false); return; }
-    if (!id || !['customer', 'admin'].includes(source)) {
+    if (!id || !['customer', 'admin', 'salesman'].includes(source)) {
       setError('Invalid order ID');
       setLoading(false);
       return;
@@ -1995,9 +1995,7 @@ export default function OrderDetailsScreen() {
         </View>
         <View>
           <Text style={[styles.statusTitle, { color: cfg.color }]}>{cfg.label}</Text>
-          <Text style={styles.statusDesc}>
-            {order.event_date ? `Event on ${formatDate(order.event_date)}` : 'Awaiting event date'}
-          </Text>
+
         </View>
       </View>
 

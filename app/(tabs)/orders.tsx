@@ -21,7 +21,7 @@ interface OrderItem {
 }
 
 interface Order {
-  orderSource: 'customer' | 'admin';
+  orderSource: 'customer' | 'admin' | 'salesman';
   invoice_number?: string;
   id: number;
   order_number: string;

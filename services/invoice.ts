@@ -4,6 +4,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { API_BASE_URL } from '@/constants/api';
 
+
 async function assertInvoiceResponse(response: Response): Promise<void> {
   if (response.ok) return;
   const messages: Record<number, string> = {
@@ -19,7 +20,7 @@ async function assertInvoiceResponse(response: Response): Promise<void> {
 export interface InvoiceData {
   orderId: number;
   invoiceNumber?: string;
-  orderSource?: 'customer' | 'admin';
+  orderSource?: 'customer' | 'admin' | 'salesman';
   orderNumber: string;
   customerName: string;
   customerEmail: string;
@@ -286,37 +287,6 @@ export const generateInvoiceHTML = (data: InvoiceData): string => {
             </div>
           </div>
 
-          <div class="event-details">
-            <div class="item">
-              <div class="label">Event Type</div>
-              <div class="value">${data.eventType || 'N/A'}</div>
-            </div>
-            <div class="item">
-              <div class="label">Event Date</div>
-              <div class="value">${eventDateFormatted}</div>
-            </div>
-            <div class="item">
-              <div class="label">Guest Count</div>
-              <div class="value">${data.guestCount || 0}</div>
-            </div>
-            <div class="item span-full">
-              <div class="label">Venue</div>
-              <div class="value">${data.venue || 'N/A'}</div>
-            </div>
-            ${data.eventTime ? `
-            <div class="item span-full">
-              <div class="label">Event Time</div>
-              <div class="value">${data.eventTime}</div>
-            </div>
-            ` : ''}
-            ${data.specialInstructions ? `
-            <div class="item span-full">
-              <div class="label">Special Instructions</div>
-              <div class="value">${data.specialInstructions}</div>
-            </div>
-            ` : ''}
-          </div>
-
           <table class="items-table">
             <thead>
               <tr>
@@ -386,64 +356,164 @@ export const generateInvoiceHTML = (data: InvoiceData): string => {
   `;
 };
 
-// ─── Download Invoice - Mobile (Using Server API) ───────────────────────────
-export const downloadInvoiceMobile = async (orderData: InvoiceData, token: string): Promise<boolean> => {
+export const downloadInvoiceMobile = async (
+  orderData: InvoiceData,
+  token: string
+): Promise<boolean> => {
   try {
-    // Send request to server to generate PDF
-    const response = await fetch(`${API_BASE_URL}/invoice/generate-pdf`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify({ orderData }),
-    });
+    console.log('📄 Starting invoice download...');
+    console.log('🌐 API:', `${API_BASE_URL}/invoice/generate-pdf`);
 
-    await assertInvoiceResponse(response);
+    const response = await fetch(
+      `${API_BASE_URL}/invoice/generate-pdf`,
+      {
+        method: 'POST',
+        headers: {
+          Accept: 'application/pdf',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ orderData }),
+      }
+    );
 
-    // Get the PDF as blob
-    const blob = await response.blob();
-    if (!blob.type.includes('application/pdf') || !blob.size) throw new Error('Server did not return a valid PDF');
-    const fileName = `Invoice_${(orderData.invoiceNumber || orderData.orderNumber).replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
-    
-    // Convert blob to base64 using FileReader
-    const base64 = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        // Remove data:application/pdf;base64, prefix
-        const base64Data = result.split(',')[1];
-        resolve(base64Data);
-      };
-      reader.onerror = () => {
-        reject(new Error('Failed to read blob as base64'));
-      };
-      reader.readAsDataURL(blob);
-    });
+    console.log('📡 Invoice response status:', response.status);
+    console.log(
+      '📡 Content-Type:',
+      response.headers.get('content-type')
+    );
 
-    // Save to device using expo-file-system legacy API
-    const fileUri = FileSystem.documentDirectory + fileName;
-    
-    // Write the base64 string to file
-    await FileSystem.writeAsStringAsync(fileUri, base64, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
+    // First check HTTP status
+    if (!response.ok) {
+      let errorMessage = `Invoice request failed (${response.status})`;
 
-    // Share the PDF
-    const isSharingAvailable = await Sharing.isAvailableAsync();
-    if (isSharingAvailable) {
+      try {
+        const errorText = await response.text();
+        console.error('❌ Server error:', errorText);
+
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.message || errorMessage;
+        } catch {
+          if (errorText) {
+            errorMessage = errorText;
+          }
+        }
+      } catch (e) {
+        console.error('Could not read error response:', e);
+      }
+
+      throw new Error(errorMessage);
+    }
+
+    // Get raw PDF bytes
+    const arrayBuffer = await response.arrayBuffer();
+
+    if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+      throw new Error('Server returned an empty PDF');
+    }
+
+    console.log(
+      '📦 PDF size:',
+      arrayBuffer.byteLength,
+      'bytes'
+    );
+
+    // Convert ArrayBuffer -> Base64
+    const uint8Array = new Uint8Array(arrayBuffer);
+
+    let binary = '';
+    const chunkSize = 0x8000;
+
+    for (let i = 0; i < uint8Array.length; i += chunkSize) {
+      const chunk = uint8Array.subarray(
+        i,
+        Math.min(i + chunkSize, uint8Array.length)
+      );
+
+      binary += String.fromCharCode(...chunk);
+    }
+
+    const base64 = btoa(binary);
+
+    // Check PDF magic bytes: "%PDF"
+    const pdfHeader = binary.substring(0, 4);
+
+    console.log('📄 PDF header:', pdfHeader);
+
+    if (pdfHeader !== '%PDF') {
+      console.error(
+        '❌ Response is not a PDF. First bytes:',
+        binary.substring(0, 100)
+      );
+
+      throw new Error(
+        'Server did not return a valid PDF. Please try again.'
+      );
+    }
+
+    const invoiceNumber =
+      orderData.invoiceNumber ||
+      orderData.orderNumber ||
+      'invoice';
+
+    const fileName =
+      `Invoice_${invoiceNumber.replace(
+        /[^a-zA-Z0-9_-]/g,
+        '_'
+      )}.pdf`;
+
+    const fileUri =
+      `${FileSystem.documentDirectory}${fileName}`;
+
+    console.log('💾 Saving PDF:', fileUri);
+
+    await FileSystem.writeAsStringAsync(
+      fileUri,
+      base64,
+      {
+        encoding: FileSystem.EncodingType.Base64,
+      }
+    );
+
+    // Verify file was actually written
+    const fileInfo = await FileSystem.getInfoAsync(fileUri);
+
+    console.log('✅ Saved PDF:', fileInfo);
+
+    if (!fileInfo.exists) {
+      throw new Error('PDF file was not saved');
+    }
+
+    if (
+      'size' in fileInfo &&
+      typeof fileInfo.size === 'number' &&
+      fileInfo.size === 0
+    ) {
+      throw new Error('Saved PDF file is empty');
+    }
+
+    // Share / open PDF
+    const sharingAvailable =
+      await Sharing.isAvailableAsync();
+
+    if (sharingAvailable) {
       await Sharing.shareAsync(fileUri, {
         mimeType: 'application/pdf',
-        dialogTitle: 'Download Invoice PDF',
+        dialogTitle: 'Invoice PDF',
         UTI: 'com.adobe.pdf',
       });
-      return true;
     } else {
-      console.log('PDF saved at:', fileUri);
-      return true;
+      console.log('📄 PDF saved at:', fileUri);
     }
-  } catch (error) {
-    console.error('Error downloading invoice on mobile:', error);
+
+    return true;
+  } catch (error: any) {
+    console.error(
+      '❌ Error downloading invoice:',
+      error
+    );
+
     throw error;
   }
 };

@@ -3095,11 +3095,12 @@ const handleApplyCoupon = useCallback(async (code: string, discount: number, min
                 </TouchableOpacity>
               </View>
             ) : (
-              <TouchableOpacity style={styles.couponInput} onPress={() => setShowCoupons(true)}>
-                <Tag color={COLORS.gold[500]} size={20} />
-                <Text style={styles.couponPlaceholder}>Apply coupon code</Text>
-                <ChevronRight color={COLORS.neutral[400]} size={20} />
-              </TouchableOpacity>
+              // <TouchableOpacity style={styles.couponInput} onPress={() => setShowCoupons(true)}>
+              //   <Tag color={COLORS.gold[500]} size={20} />
+              //   <Text style={styles.couponPlaceholder}>Apply coupon code</Text>
+              //   <ChevronRight color={COLORS.neutral[400]} size={20} />
+              // </TouchableOpacity>
+              <div></div>
             )}
           </View>
         }
