@@ -1550,6 +1550,7 @@
 // app/order-details/[id].tsx
 // app/order-details/[id].tsx
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { formatOrderAddress, resolveOrderImage } from '@/utils/orderMedia';
 import { normalizeOrderStatus, orderTimeline } from '@/utils/orderTimeline';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, Platform, Alert } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
@@ -2081,10 +2082,7 @@ export default function OrderDetailsScreen() {
         <View style={styles.detailCard}>
           <View style={styles.addressBlock}>
             <Text style={styles.addressName}>{order.address_full_name || 'N/A'}</Text>
-            <Text style={styles.addressText}>{order.address_line1 || ''}</Text>
-            {order.address_line2 && <Text style={styles.addressText}>{order.address_line2}</Text>}
-            <Text style={styles.addressText}>{order.address_city || ''}, {order.address_state || ''} - {order.address_pincode || ''}</Text>
-            <Text style={styles.addressText}>{order.address_country || 'India'}</Text>
+            {formatOrderAddress(order as unknown as Record<string, unknown>).map((line, index) => <Text key={index} style={styles.addressText}>{line}</Text>)}
             <Text style={styles.addressPhone}>📞 {order.address_phone || order.customer_phone || 'N/A'}</Text>
           </View>
         </View>
@@ -2097,7 +2095,7 @@ export default function OrderDetailsScreen() {
           order.items.map((item, i) => (
             <View key={i} style={styles.itemCard}>
               <Image 
-                source={{ uri: item.image || 'https://via.placeholder.com/80x80?text=No+Image' }} 
+                source={resolveOrderImage(item.image) ? { uri: resolveOrderImage(item.image) } : require('@/assets/images/icon.png')}
                 style={styles.itemImage} 
                 resizeMode="cover" 
               />
