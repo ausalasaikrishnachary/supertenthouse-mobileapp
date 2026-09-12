@@ -6975,7 +6975,7 @@ export default function ProductDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { has, toggle } = useWishlist();
-  const { addItem, fetchCart } = useCart();
+  const { addItem } = useCart();
   const { state: authState } = useAuth();
   const { show } = useToast();
   const [product, setProduct] = useState<Product | null>(null);
@@ -7060,17 +7060,9 @@ export default function ProductDetailScreen() {
 
     let customerId = authState.user?.id;
 
-    if (!customerId) {
-      try {
-        const userStr = localStorage.getItem('auth_user');
-        if (userStr) {
-          const user = JSON.parse(userStr);
-          customerId = user.id;
-          console.log('📦 Got customerId from localStorage directly:', customerId);
-        }
-      } catch (error) {
-        console.error('❌ Failed to get user from localStorage:', error);
-      }
+    if (authState.isLoading) {
+      show('Please wait while your account loads', 'info');
+      return;
     }
 
     console.log('📦 Auth state in product screen:', {
@@ -7116,9 +7108,6 @@ export default function ProductDetailScreen() {
       };
 
       await addItem(cartItem, customerId);
-
-      const updatedCart = await fetchCart(customerId);
-      console.log('📦 Cart after adding:', updatedCart);
 
       show(`${qty} item${qty > 1 ? 's' : ''} added to cart 🛒`);
     } catch (error: any) {
