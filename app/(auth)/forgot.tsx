@@ -5,19 +5,31 @@ import { Mail, ArrowLeft } from 'lucide-react-native';
 import { COLORS, SPACING, RADIUS } from '@/constants/theme';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/store/toast';
+import { useAuth } from '@/store/auth';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const { show } = useToast();
+  const { beginPasswordReset } = useAuth();
   const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!email) {
       show('Enter your email', 'error');
       return;
     }
-    show('OTP sent to your email');
-    router.push('/(auth)/otp');
+    setLoading(true);
+    try {
+      const normalizedEmail = email.trim().toLowerCase();
+      await beginPasswordReset(normalizedEmail);
+      show('OTP sent to your email');
+      router.push({ pathname: '/(auth)/otp', params: { email: normalizedEmail, purpose: 'password-reset' } });
+    } catch (error: any) {
+      show(error.message || 'Failed to send OTP', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -36,7 +48,7 @@ export default function ForgotPasswordScreen() {
             <Mail color={COLORS.neutral[400]} size={20} style={styles.inputIcon} />
             <TextInput style={styles.input} placeholder="you@example.com" placeholderTextColor={COLORS.neutral[400]} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
           </View>
-          <Button onPress={handleSend} fullWidth size="lg">Send OTP</Button>
+          <Button onPress={handleSend} loading={loading} fullWidth size="lg">Send OTP</Button>
         </View>
       </View>
     </KeyboardAvoidingView>

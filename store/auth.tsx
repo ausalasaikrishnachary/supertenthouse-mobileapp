@@ -2673,6 +2673,8 @@ type AuthState = {
   isAuthenticated: boolean;
   registrationEmail: string | null;
   registrationData: any | null;
+  otpChallenge: { email: string; purpose: 'email-verification' | 'password-reset'; origin: 'login' | 'register' | 'forgot' } | null;
+  passwordResetToken: string | null;
 };
 
 type AuthAction =
@@ -2681,7 +2683,9 @@ type AuthAction =
   | { type: 'LOGOUT' }
   | { type: 'UPDATE_USER'; payload: Partial<User> }
   | { type: 'SET_REGISTRATION_EMAIL'; payload: string | null }
-  | { type: 'SET_REGISTRATION_DATA'; payload: any | null };
+  | { type: 'SET_REGISTRATION_DATA'; payload: any | null }
+  | { type: 'SET_OTP_CHALLENGE'; payload: AuthState['otpChallenge'] }
+  | { type: 'SET_PASSWORD_RESET_TOKEN'; payload: string | null };
 
 const initialState: AuthState = {
   user: null,
@@ -2690,6 +2694,8 @@ const initialState: AuthState = {
   isAuthenticated: false,
   registrationEmail: null,
   registrationData: null,
+  otpChallenge: null,
+  passwordResetToken: null,
 };
 
 function authReducer(state: AuthState, action: AuthAction): AuthState {
@@ -2705,16 +2711,20 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
         isLoading: false, 
         isAuthenticated: true,
         registrationEmail: null,
-        registrationData: null
+        registrationData: null,
+        otpChallenge: null,
+        passwordResetToken: null
       };
     case 'LOGOUT':
       return { 
         user: null, 
         token: null, 
         isLoading: false, 
-        isAuthenticated: false, 
+        isAuthenticated: false,
         registrationEmail: null,
-        registrationData: null
+        registrationData: null,
+        otpChallenge: null,
+        passwordResetToken: null
       };
     case 'UPDATE_USER':
       return { ...state, user: state.user ? { ...state.user, ...action.payload } : null };
@@ -2722,6 +2732,10 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
       return { ...state, registrationEmail: action.payload };
     case 'SET_REGISTRATION_DATA':
       return { ...state, registrationData: action.payload };
+    case 'SET_OTP_CHALLENGE':
+      return { ...state, otpChallenge: action.payload, registrationEmail: action.payload?.email || null };
+    case 'SET_PASSWORD_RESET_TOKEN':
+      return { ...state, passwordResetToken: action.payload };
     default:
       return state;
   }
@@ -2729,10 +2743,13 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
 
 type AuthContextType = {
   state: AuthState;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<{ requiresOTP: boolean; email?: string }>;
   register: (name: string, email: string, password: string, phone?: string, address?: any) => Promise<void>;
   verifyOTP: (email: string, otp: string) => Promise<void>;
   resendOTP: (email: string) => Promise<void>;
+  beginPasswordReset: (email: string) => Promise<void>;
+  verifyPasswordResetOTP: (email: string, otp: string) => Promise<void>;
+  resetPassword: (password: string) => Promise<void>;
   logout: () => Promise<void>;
   updateUser: (data: Partial<User>) => void;
   updateProfile: (data: Partial<User>) => Promise<void>;
@@ -2755,6 +2772,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.log('🔍 Loading auth state from storage...');
         const token = await storage.getItem('auth_token');
         const userStr = await storage.getItem('auth_user');
+        const challengeStr = await storage.getItem('otp_challenge');
+        if (challengeStr) {
+          try { dispatch({ type: 'SET_OTP_CHALLENGE', payload: JSON.parse(challengeStr) }); } catch {}
+        }
+        const resetToken = await storage.getItem('password_reset_token');
+        if (resetToken) dispatch({ type: 'SET_PASSWORD_RESET_TOKEN', payload: resetToken });
         
         if (token && userStr) {
           try {
@@ -2842,8 +2865,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (response.status === 403 && data.requiresOTP) {
-        dispatch({ type: 'SET_REGISTRATION_EMAIL', payload: data.email });
-        throw new Error('Please verify your email first');
+        const challenge = { email: data.email || email, purpose: 'email-verification' as const, origin: 'login' as const };
+        await storage.setItem('otp_challenge', JSON.stringify(challenge));
+        dispatch({ type: 'SET_OTP_CHALLENGE', payload: challenge });
+        return { requiresOTP: true, email: challenge.email };
       }
 
       if (!response.ok) {
@@ -2864,6 +2889,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await storage.setItem('auth_user', JSON.stringify(user));
 
       dispatch({ type: 'SET_AUTH', payload: { user, token } });
+      return { requiresOTP: false };
       
     } catch (error: any) {
       console.error('❌ Login error:', error);
@@ -2917,7 +2943,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const emailToStore = data.email || email;
+      const challenge = { email: emailToStore, purpose: 'email-verification' as const, origin: 'register' as const };
+      await storage.setItem('otp_challenge', JSON.stringify(challenge));
       dispatch({ type: 'SET_REGISTRATION_EMAIL', payload: emailToStore });
+      dispatch({ type: 'SET_OTP_CHALLENGE', payload: challenge });
       dispatch({ type: 'SET_REGISTRATION_DATA', payload: { name, email, phone, ...address } });
 
       return data;
@@ -2966,6 +2995,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await storage.setItem('auth_user', JSON.stringify(user));
 
       dispatch({ type: 'SET_AUTH', payload: { user, token } });
+      await storage.removeItem('otp_challenge');
     } catch (error) {
       console.error('❌ OTP verification error:', error);
       throw error;
@@ -3004,6 +3034,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw error;
     }
   }, []);
+
+  const beginPasswordReset = useCallback(async (email: string) => {
+    const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || 'Failed to send OTP');
+    const challenge = { email: data.email || email, purpose: 'password-reset' as const, origin: 'forgot' as const };
+    await storage.setItem('otp_challenge', JSON.stringify(challenge));
+    dispatch({ type: 'SET_OTP_CHALLENGE', payload: challenge });
+  }, []);
+
+  const verifyPasswordResetOTP = useCallback(async (email: string, otp: string) => {
+    const response = await fetch(`${API_BASE_URL}/auth/verify-reset-otp`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ email, otp })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.resetToken) throw new Error(data.message || 'OTP verification failed');
+    await storage.setItem('password_reset_token', data.resetToken);
+    dispatch({ type: 'SET_PASSWORD_RESET_TOKEN', payload: data.resetToken });
+  }, []);
+
+  const resetPassword = useCallback(async (password: string) => {
+    const resetToken = state.passwordResetToken || await storage.getItem('password_reset_token');
+    if (!resetToken) throw new Error('Password reset session is missing');
+    const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ resetToken, password })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || 'Password reset failed');
+    await storage.removeItem('otp_challenge');
+    await storage.removeItem('password_reset_token');
+    dispatch({ type: 'SET_OTP_CHALLENGE', payload: null });
+    dispatch({ type: 'SET_PASSWORD_RESET_TOKEN', payload: null });
+  }, [state.passwordResetToken]);
 
   const logout = useCallback(async () => {
     await storage.removeItem('auth_token');
@@ -3155,13 +3223,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     register,
     verifyOTP,
     resendOTP,
+    beginPasswordReset,
+    verifyPasswordResetOTP,
+    resetPassword,
     logout,
     updateUser,
     updateProfile,
     uploadProfilePhoto,
     refreshUser,
     debugAuth
-  }), [state, login, register, verifyOTP, resendOTP, logout, updateUser, updateProfile, uploadProfilePhoto, refreshUser, debugAuth]);
+  }), [state, login, register, verifyOTP, resendOTP, beginPasswordReset, verifyPasswordResetOTP, resetPassword, logout, updateUser, updateProfile, uploadProfilePhoto, refreshUser, debugAuth]);
 
   return (
     <AuthContext.Provider value={contextValue}>

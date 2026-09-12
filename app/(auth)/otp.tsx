@@ -104,7 +104,7 @@ import {
   Platform, 
   ScrollView 
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ArrowLeft, Clock } from 'lucide-react-native';
 import { COLORS, SPACING, RADIUS } from '@/constants/theme';
@@ -114,7 +114,8 @@ import { useToast } from '@/store/toast';
 
 export default function OTPScreen() {
   const router = useRouter();
-  const { state, verifyOTP, resendOTP } = useAuth();
+  const params = useLocalSearchParams<{ email?: string; purpose?: string }>();
+  const { state, verifyOTP, resendOTP, beginPasswordReset, verifyPasswordResetOTP } = useAuth();
   const { show } = useToast();
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
@@ -125,11 +126,12 @@ export default function OTPScreen() {
   // ✅ Fixed: Use array of refs with proper type
   const inputRefs = useRef<Array<TextInput | null>>([]);
 
-  const email = state.registrationEmail;
+  const email = params.email || state.otpChallenge?.email || state.registrationEmail;
+  const purpose = params.purpose || state.otpChallenge?.purpose || 'email-verification';
 
   useEffect(() => {
     if (!email) {
-      router.replace('/(auth)/register');
+      router.replace('/(auth)/login');
       return;
     }
 
@@ -202,16 +204,22 @@ export default function OTPScreen() {
     }
 
     if (!email) {
-      show('Email not found. Please register again.', 'error');
-      router.replace('/(auth)/register');
+      show('Email not found. Please request a new OTP.', 'error');
+      router.replace(purpose === 'password-reset' ? '/(auth)/forgot' : '/(auth)/login');
       return;
     }
 
     setLoading(true);
     try {
-      await verifyOTP(email, otpString);
-      show('Email verified successfully!');
-      router.replace('/(tabs)');
+      if (purpose === 'password-reset') {
+        await verifyPasswordResetOTP(email, otpString);
+        show('OTP verified successfully!');
+        router.replace('/(auth)/reset-password');
+      } else {
+        await verifyOTP(email, otpString);
+        show('Email verified successfully!');
+        router.replace('/(tabs)');
+      }
     } catch (error: any) {
       show(error.message || 'OTP verification failed', 'error');
       // Clear OTP on error
@@ -228,14 +236,15 @@ export default function OTPScreen() {
     if (!canResend) return;
     
     if (!email) {
-      show('Email not found. Please register again.', 'error');
-      router.replace('/(auth)/register');
+      show('Email not found. Please request a new OTP.', 'error');
+      router.replace(purpose === 'password-reset' ? '/(auth)/forgot' : '/(auth)/login');
       return;
     }
 
     setResendLoading(true);
     try {
-      await resendOTP(email);
+      if (purpose === 'password-reset') await beginPasswordReset(email);
+      else await resendOTP(email);
       show('OTP resent successfully!');
       setTimeLeft(300);
       setCanResend(false);

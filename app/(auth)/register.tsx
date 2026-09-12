@@ -248,7 +248,7 @@ export default function RegisterScreen() {
         }
       );
       show('Registration successful! Please verify your email.');
-      router.push('/(auth)/otp');
+      router.push({ pathname: '/(auth)/otp', params: { email: email.trim(), purpose: 'email-verification' } });
     } catch (error: any) {
       show(error.message || 'Registration failed', 'error');
     }
