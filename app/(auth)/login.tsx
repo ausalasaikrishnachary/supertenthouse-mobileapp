@@ -29,7 +29,12 @@ export default function LoginScreen() {
     }
     setLoading(true);
     try {
-      await login(email, password);
+      const result = await login(email.trim(), password);
+      if (result.requiresOTP) {
+        show('Please verify your email first. OTP sent to your email.');
+        router.push({ pathname: '/(auth)/otp', params: { email: result.email || email.trim(), purpose: 'email-verification' } });
+        return;
+      }
       show('Welcome back!');
       router.replace('/(tabs)');
     } catch (error: any) {
