@@ -7284,6 +7284,81 @@ const iconMap: Record<string, any> = {
   '📦': ShoppingBag,
 };
 
+/**
+ * Normalizes an include item into a clean display string.
+ * Handles: strings, JSON-stringified arrays/objects, nested arrays, objects with name/label/value.
+ */
+const normalizeIncludeItem = (item: any): string => {
+  if (item == null) return '';
+
+  // If it's already a string, try to parse it as JSON (in case it's stringified array/object)
+  if (typeof item === 'string') {
+    const trimmed = item.trim();
+    if (!trimmed) return '';
+
+    // Try to parse JSON-like strings
+    if (
+      (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+      (trimmed.startsWith('{') && trimmed.endsWith('}'))
+    ) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return normalizeIncludeItem(parsed);
+      } catch {
+        // Not valid JSON — strip brackets and quotes as fallback
+        return trimmed
+          .replace(/^\[|\]$/g, '')
+          .replace(/^"|"$/g, '')
+          .replace(/"\s*,\s*"/g, ', ')
+          .replace(/","/g, ', ');
+      }
+    }
+    return trimmed;
+  }
+
+  // If it's an array, join recursively
+  if (Array.isArray(item)) {
+    return item
+      .map(normalizeIncludeItem)
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  // If it's an object, try common keys
+  if (typeof item === 'object') {
+    if ('name' in item) return String(item.name);
+    if ('label' in item) return String(item.label);
+    if ('value' in item) return String(item.value);
+    return Object.values(item).map(normalizeIncludeItem).filter(Boolean).join(', ');
+  }
+
+  return String(item);
+};
+
+/**
+ * Takes an array of raw includes (which may contain nested/stringified arrays)
+ * and returns a flat, de-duplicated array of clean display strings.
+ */
+const flattenIncludes = (raw: any[]): string[] => {
+  if (!Array.isArray(raw)) return [];
+
+  const collected: string[] = [];
+
+  raw.forEach((entry) => {
+    const normalized = normalizeIncludeItem(entry);
+    if (!normalized) return;
+
+    // Split on commas that resulted from array joins, then trim
+    normalized
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((piece) => collected.push(piece));
+  });
+
+  return Array.from(new Set(collected));
+};
+
 export default function PackageDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -7292,7 +7367,7 @@ export default function PackageDetailScreen() {
   const { show } = useToast();
   const { state, toggle, has } = useWishlist();
   const { state: authState } = useAuth();
-  
+
   const [pkg, setPkg] = useState<Package | null>(null);
   const [addOns, setAddOns] = useState<AddOn[]>([]);
   const [selectedAddOns, setSelectedAddOns] = useState<string[]>([]);
@@ -7300,7 +7375,7 @@ export default function PackageDetailScreen() {
   const [activeImage, setActiveImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [showAllAddons, setShowAllAddons] = useState(false);
-  
+
   const flatListRef = useRef<FlatList>(null);
 
   const loadData = useCallback(async () => {
@@ -7310,12 +7385,25 @@ export default function PackageDetailScreen() {
         mockApi.getPackage(id),
         mockApi.getPackageAddons(id),
       ]);
-      
-      setPkg(pkgData || null);
-      
+
+      // Sanitize includes at load time so downstream consumers always get clean strings
+      const cleanedPkg = pkgData
+        ? {
+            ...pkgData,
+            includes: Array.isArray(pkgData.includes)
+              ? flattenIncludes(pkgData.includes)
+              : [],
+            customServices: Array.isArray(pkgData.customServices)
+              ? flattenIncludes(pkgData.customServices)
+              : [],
+          }
+        : null;
+
+      setPkg(cleanedPkg as Package | null);
+
       console.log('📦 Package images:', pkgData?.images);
       console.log('📦 Package image:', pkgData?.image);
-      
+
       if (packageAddons && packageAddons.length > 0) {
         setAddOns(packageAddons);
         const defaultAddonIds = packageAddons
@@ -7332,16 +7420,16 @@ export default function PackageDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, show]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
   const toggleAddOn = useCallback((addOnId: string) => {
-    setSelectedAddOns((prev) => 
-      prev.includes(addOnId) 
-        ? prev.filter(a => a !== addOnId) 
+    setSelectedAddOns((prev) =>
+      prev.includes(addOnId)
+        ? prev.filter((a) => a !== addOnId)
         : [...prev, addOnId]
     );
   }, []);
@@ -7349,7 +7437,7 @@ export default function PackageDetailScreen() {
   // ─── Calculate totals ──────────────────────────────────────────────────────
   const addOnTotal = useMemo(() => {
     return addOns
-      .filter(a => selectedAddOns.includes(a.id))
+      .filter((a) => selectedAddOns.includes(a.id))
       .reduce((sum, a) => sum + (a.price || 0), 0);
   }, [addOns, selectedAddOns]);
 
@@ -7371,7 +7459,7 @@ export default function PackageDetailScreen() {
 
   const groupedAddons = useMemo(() => {
     const groups: Record<string, AddOn[]> = {};
-    addOns.forEach(addon => {
+    addOns.forEach((addon) => {
       const category = addon.category || 'General';
       if (!groups[category]) groups[category] = [];
       groups[category].push(addon);
@@ -7382,12 +7470,25 @@ export default function PackageDetailScreen() {
   const categories = Object.keys(groupedAddons);
   const visibleCategories = showAllAddons ? categories : categories.slice(0, 2);
 
+  /**
+   * Combined, deduplicated list of include items for the "What's Included" section.
+   * Both includes and customServices are already flattened at load time, but we
+   * re-flatten here as a defensive measure.
+   */
+  const includeItems = useMemo(() => {
+    const combined = [
+      ...(pkg?.includes || []),
+      ...(pkg?.customServices || []),
+    ];
+    return flattenIncludes(combined);
+  }, [pkg]);
+
   const handleAddToCart = useCallback(() => {
     if (!pkg) return;
-    
+
     const selectedAddonDetails = addOns
-      .filter(a => selectedAddOns.includes(a.id))
-      .map(a => ({
+      .filter((a) => selectedAddOns.includes(a.id))
+      .map((a) => ({
         id: a.id,
         name: a.name,
         price: a.price,
@@ -7415,16 +7516,16 @@ export default function PackageDetailScreen() {
 
   const handleWishlistToggle = useCallback(() => {
     if (!pkg) return;
-    
+
     const isWishlisted = has(pkg.id);
     const customerId = authState?.user?.id;
-    
+
     const productData = {
       name: pkg.name,
       price: pkg.price,
       image: pkg.images?.[0] || pkg.image || '',
     };
-    
+
     toggle(pkg.id, customerId, productData);
     show(isWishlisted ? 'Removed from wishlist' : 'Added to wishlist ❤️');
   }, [pkg, has, toggle, show, authState]);
@@ -7459,7 +7560,9 @@ export default function PackageDetailScreen() {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <ActivityIndicator size="large" color={COLORS.gold[400]} />
-        <Text style={{ marginTop: 16, color: COLORS.neutral[500], fontFamily: 'Inter-Regular' }}>Loading package...</Text>
+        <Text style={{ marginTop: 16, color: COLORS.neutral[500], fontFamily: 'Inter-Regular' }}>
+          Loading package...
+        </Text>
       </View>
     );
   }
@@ -7467,12 +7570,22 @@ export default function PackageDetailScreen() {
   if (!pkg) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={{ fontSize: 16, color: COLORS.neutral[600], fontFamily: 'Inter-Regular' }}>Package not found</Text>
-        <TouchableOpacity 
-          onPress={handleGoBack} 
-          style={{ marginTop: 20, backgroundColor: COLORS.primary[600], paddingHorizontal: 24, paddingVertical: 12, borderRadius: RADIUS.lg }}
+        <Text style={{ fontSize: 16, color: COLORS.neutral[600], fontFamily: 'Inter-Regular' }}>
+          Package not found
+        </Text>
+        <TouchableOpacity
+          onPress={handleGoBack}
+          style={{
+            marginTop: 20,
+            backgroundColor: COLORS.primary[600],
+            paddingHorizontal: 24,
+            paddingVertical: 12,
+            borderRadius: RADIUS.lg,
+          }}
         >
-          <Text style={{ color: '#FFFFFF', fontFamily: 'Inter-SemiBold', fontSize: 14 }}>Go Back</Text>
+          <Text style={{ color: '#FFFFFF', fontFamily: 'Inter-SemiBold', fontSize: 14 }}>
+            Go Back
+          </Text>
         </TouchableOpacity>
       </View>
     );
@@ -7481,7 +7594,7 @@ export default function PackageDetailScreen() {
   const isWishlisted = has(pkg.id);
 
   const getTierColors = () => {
-    switch(pkg.tier) {
+    switch (pkg.tier) {
       case 'Platinum':
         return { bg: ['#1a1a2e', '#16213e'] as const, text: '#FFD700', badge: '#FFD700' };
       case 'Gold':
@@ -7502,7 +7615,7 @@ export default function PackageDetailScreen() {
     const rating = pkg.rating || 0;
     const fullStars = Math.floor(rating);
     const hasHalfStar = rating % 1 >= 0.5;
-    
+
     for (let i = 0; i < 5; i++) {
       if (i < fullStars) {
         stars.push(
@@ -7529,8 +7642,8 @@ export default function PackageDetailScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView 
-        showsVerticalScrollIndicator={false} 
+      <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 160 }}
         bounces={true}
       >
@@ -7549,9 +7662,9 @@ export default function PackageDetailScreen() {
                 keyExtractor={(item, index) => `img_${index}`}
                 renderItem={({ item, index }) => (
                   <View style={styles.imageSlide}>
-                    <Image 
-                      source={{ uri: item }} 
-                      style={styles.image} 
+                    <Image
+                      source={{ uri: item }}
+                      style={styles.image}
                       resizeMode="cover"
                       onError={(e) => {
                         console.log(`Image ${index} load error:`, item);
@@ -7569,18 +7682,18 @@ export default function PackageDetailScreen() {
               {images.length > 1 && (
                 <View style={styles.imageDots}>
                   {images.map((_, i) => (
-                    <TouchableOpacity 
-                      key={i} 
+                    <TouchableOpacity
+                      key={i}
                       onPress={() => {
                         setActiveImage(i);
                         flatListRef.current?.scrollToIndex({ index: i, animated: true });
                       }}
                     >
-                      <View 
+                      <View
                         style={[
-                          styles.imageDot, 
-                          i === activeImage && styles.imageDotActive
-                        ]} 
+                          styles.imageDot,
+                          i === activeImage && styles.imageDotActive,
+                        ]}
                       />
                     </TouchableOpacity>
                   ))}
@@ -7588,28 +7701,25 @@ export default function PackageDetailScreen() {
               )}
             </>
           ) : (
-            <View style={[styles.imageSlide, { justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.neutral[100] }]}>
+            <View
+              style={[
+                styles.imageSlide,
+                { justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.neutral[100] },
+              ]}
+            >
               <Text style={{ color: COLORS.neutral[500] }}>No images available</Text>
             </View>
           )}
-          
+
           {/* Floating Header */}
           <View style={[styles.floatingHeader, { top: insets.top + 8 }]}>
-            <TouchableOpacity 
-              style={styles.floatBtn} 
-              onPress={handleGoBack}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity style={styles.floatBtn} onPress={handleGoBack} activeOpacity={0.7}>
               <ArrowLeft color={COLORS.neutral[800]} size={22} />
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.floatBtn} 
-              onPress={handleWishlistToggle}
-              activeOpacity={0.7}
-            >
-              <Heart 
-                color={isWishlisted ? COLORS.error : COLORS.neutral[800]} 
-                size={22} 
+            <TouchableOpacity style={styles.floatBtn} onPress={handleWishlistToggle} activeOpacity={0.7}>
+              <Heart
+                color={isWishlisted ? COLORS.error : COLORS.neutral[800]}
+                size={22}
                 fill={isWishlisted ? COLORS.error : 'transparent'}
               />
             </TouchableOpacity>
@@ -7632,17 +7742,15 @@ export default function PackageDetailScreen() {
               </Text>
             </LinearGradient>
           </View>
-          
+
           <Text style={styles.name}>{String(pkg.name)}</Text>
-          
+
           <View style={styles.metaRow}>
             <View style={styles.ratingContainer}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
                 {renderStars()}
               </View>
-              <Text style={styles.ratingText}>
-                {String((pkg.rating || 0).toFixed(1))}
-              </Text>
+              <Text style={styles.ratingText}>{String((pkg.rating || 0).toFixed(1))}</Text>
             </View>
             <View style={styles.dotSeparator} />
             <Text style={styles.reviewCount}>{String(pkg.reviewCount || 0)} reviews</Text>
@@ -7671,14 +7779,14 @@ export default function PackageDetailScreen() {
                 </View>
               )}
             </View>
-            
+
             {addOnTotal > 0 && (
               <View style={styles.addOnTotalRow}>
                 <Text style={styles.addOnTotalLabel}>Add-ons Total</Text>
                 <Text style={styles.addOnTotalValue}>+ {formatPrice(addOnTotal)}</Text>
               </View>
             )}
-            
+
             <View style={styles.pricePerUnitRow}>
               <Text style={styles.pricePerUnitLabel}>Price per unit</Text>
               <Text style={styles.pricePerUnitValue}>{formatPrice(pricePerUnit)}</Text>
@@ -7689,16 +7797,16 @@ export default function PackageDetailScreen() {
           <View style={styles.quantitySection}>
             <Text style={styles.quantityLabel}>Quantity</Text>
             <View style={styles.quantityContainer}>
-              <TouchableOpacity 
-                style={styles.quantityBtn} 
+              <TouchableOpacity
+                style={styles.quantityBtn}
                 onPress={() => setQuantity(Math.max(1, quantity - 1))}
                 activeOpacity={0.7}
               >
                 <Minus color={COLORS.neutral[700]} size={20} />
               </TouchableOpacity>
               <Text style={styles.quantityText}>{quantity}</Text>
-              <TouchableOpacity 
-                style={styles.quantityBtn} 
+              <TouchableOpacity
+                style={styles.quantityBtn}
                 onPress={() => setQuantity(quantity + 1)}
                 activeOpacity={0.7}
               >
@@ -7708,21 +7816,18 @@ export default function PackageDetailScreen() {
           </View>
 
           {/* What's Included */}
-          {((pkg.includes?.length || 0) + (pkg.customServices?.length || 0) > 0) && (
+          {includeItems.length > 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>✨ What's Included</Text>
               <View style={styles.includesGrid}>
-                {[...new Set([...(pkg.includes || []), ...(pkg.customServices || [])])].map((inc, i) => {
-                  const includeText = typeof inc === 'string' ? inc : String(inc);
-                  return (
-                    <View key={i} style={styles.includeItem}>
-                      <View style={styles.includeCheck}>
-                        <Check color="#22C55E" size={14} />
-                      </View>
-                      <Text style={styles.includeText}>{includeText}</Text>
+                {includeItems.map((inc, i) => (
+                  <View key={`inc_${i}`} style={styles.includeItem}>
+                    <View style={styles.includeCheck}>
+                      <Check color="#22C55E" size={14} />
                     </View>
-                  );
-                })}
+                    <Text style={styles.includeText}>{inc}</Text>
+                  </View>
+                ))}
               </View>
             </View>
           )}
@@ -7732,7 +7837,9 @@ export default function PackageDetailScreen() {
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>🎯 Customize Your Package</Text>
-                <Text style={styles.sectionSubtitle}>Add extra services to make your event perfect</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Add extra services to make your event perfect
+                </Text>
               </View>
 
               {visibleCategories.map((category) => (
@@ -7742,7 +7849,7 @@ export default function PackageDetailScreen() {
                     const selected = selectedAddOns.includes(addon.id);
                     const IconComponent = iconMap[addon.icon] || Sparkles;
                     const priceText = `+${formatPrice(addon.price || 0)}`;
-                    
+
                     return (
                       <TouchableOpacity
                         key={addon.id}
@@ -7751,14 +7858,14 @@ export default function PackageDetailScreen() {
                         activeOpacity={0.8}
                       >
                         <View style={[styles.addOnIcon, selected && styles.addOnIconActive]}>
-                          <IconComponent 
-                            size={18} 
-                            color={selected ? '#FFFFFF' : COLORS.primary[600]} 
-                          />
+                          <IconComponent size={18} color={selected ? '#FFFFFF' : COLORS.primary[600]} />
                         </View>
                         <View style={styles.addOnBody}>
                           <View style={styles.addOnInfo}>
-                            <Text style={[styles.addOnName, selected && styles.addOnNameActive]} numberOfLines={1}>
+                            <Text
+                              style={[styles.addOnName, selected && styles.addOnNameActive]}
+                              numberOfLines={1}
+                            >
                               {String(addon.name)}
                             </Text>
                             {addon.description && (
@@ -7768,8 +7875,16 @@ export default function PackageDetailScreen() {
                             )}
                           </View>
                           <View style={styles.addOnRight}>
-                            <View style={[styles.addOnPriceContainer, selected && styles.addOnPriceContainerActive]}>
-                              <Text style={[styles.addOnPrice, selected && styles.addOnPriceActive]} numberOfLines={1}>
+                            <View
+                              style={[
+                                styles.addOnPriceContainer,
+                                selected && styles.addOnPriceContainerActive,
+                              ]}
+                            >
+                              <Text
+                                style={[styles.addOnPrice, selected && styles.addOnPriceActive]}
+                                numberOfLines={1}
+                              >
                                 {priceText}
                               </Text>
                             </View>
@@ -7796,9 +7911,9 @@ export default function PackageDetailScreen() {
                   <Text style={styles.showMoreText}>
                     {showAllAddons ? 'Show Less' : `Show More (${categories.length - 2} more)`}
                   </Text>
-                  <ChevronRight 
-                    size={16} 
-                    color={COLORS.primary[600]} 
+                  <ChevronRight
+                    size={16}
+                    color={COLORS.primary[600]}
                     style={showAllAddons ? styles.chevronRotated : undefined}
                   />
                 </TouchableOpacity>
@@ -7811,31 +7926,31 @@ export default function PackageDetailScreen() {
             <View style={styles.summaryHeader}>
               <Text style={styles.summaryTitle}>📋 Order Summary</Text>
             </View>
-            
+
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Package Price</Text>
               <Text style={styles.summaryValue}>{formatPrice(basePrice)}</Text>
             </View>
-            
+
             {addOnTotal > 0 && (
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Add-ons ({selectedAddOns.length})</Text>
                 <Text style={styles.summaryValue}>+ {formatPrice(addOnTotal)}</Text>
               </View>
             )}
-            
+
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Quantity</Text>
               <Text style={styles.summaryValue}>× {quantity}</Text>
             </View>
-            
+
             <View style={styles.summaryDivider} />
-            
+
             <View style={styles.summaryTotal}>
               <Text style={styles.totalLabel}>Grand Total</Text>
               <Text style={styles.totalValue}>{formatPrice(grandTotal)}</Text>
             </View>
-            
+
             {quantity > 1 && (
               <Text style={styles.breakdownText}>
                 ({formatPrice(pricePerUnit)} × {quantity} = {formatPrice(grandTotal)})
@@ -7856,18 +7971,18 @@ export default function PackageDetailScreen() {
             </Text>
           )}
         </View>
-        
-        <TouchableOpacity 
-          onPress={handleAddToCart} 
+
+        <TouchableOpacity
+          onPress={handleAddToCart}
           style={[styles.actionBtn, styles.outlineBtn]}
           activeOpacity={0.8}
         >
           <ShoppingBag size={18} color={COLORS.primary[600]} />
           <Text style={styles.outlineBtnText}>Add to Cart</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity 
-          onPress={handleBookNow} 
+
+        <TouchableOpacity
+          onPress={handleBookNow}
           style={[styles.actionBtn, styles.goldBtn]}
           activeOpacity={0.8}
         >
@@ -7879,24 +7994,24 @@ export default function PackageDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#F8F9FA' 
+  container: {
+    flex: 1,
+    backgroundColor: '#F8F9FA',
   },
-  imageWrap: { 
-    position: 'relative', 
-    width: '100%', 
+  imageWrap: {
+    position: 'relative',
+    width: '100%',
     height: 320,
     overflow: 'hidden',
   },
-  imageSlide: { 
-    width: width, 
+  imageSlide: {
+    width: width,
     height: 320,
   },
-  image: { 
-    width: width, 
-    height: 320, 
-    resizeMode: 'cover' 
+  image: {
+    width: width,
+    height: 320,
+    resizeMode: 'cover',
   },
   imageGradient: {
     position: 'absolute',
@@ -7916,18 +8031,18 @@ const styles = StyleSheet.create({
     gap: 8,
     zIndex: 2,
   },
-  imageDot: { 
-    width: 8, 
-    height: 8, 
-    borderRadius: 4, 
+  imageDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: 'rgba(255,255,255,0.4)',
   },
-  imageDotActive: { 
-    width: 24, 
-    backgroundColor: '#FFFFFF' 
+  imageDotActive: {
+    width: 24,
+    backgroundColor: '#FFFFFF',
   },
-  floatingHeader: { 
-    position: 'absolute', 
+  floatingHeader: {
+    position: 'absolute',
     left: 16,
     right: 16,
     flexDirection: 'row',
@@ -7966,21 +8081,21 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     ...SHADOWS.small,
   },
-  tierText: { 
-    fontSize: 11, 
+  tierText: {
+    fontSize: 11,
     fontFamily: 'Inter-Bold',
     letterSpacing: 0.5,
   },
-  name: { 
-    fontSize: 24, 
-    fontFamily: 'Inter-Bold', 
-    color: '#1A1A1A', 
+  name: {
+    fontSize: 24,
+    fontFamily: 'Inter-Bold',
+    color: '#1A1A1A',
     lineHeight: 30,
     marginBottom: 8,
   },
-  metaRow: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     flexWrap: 'wrap',
     marginBottom: 12,
   },
@@ -8002,10 +8117,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#CCCCCC',
     marginHorizontal: 8,
   },
-  reviewCount: { 
-    fontSize: 13, 
+  reviewCount: {
+    fontSize: 13,
     fontFamily: 'Inter-Regular',
-    color: '#666666' 
+    color: '#666666',
   },
   guestBadge: {
     flexDirection: 'row',
@@ -8016,15 +8131,15 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
-  guestText: { 
-    fontSize: 12, 
+  guestText: {
+    fontSize: 12,
     fontFamily: 'Inter-Medium',
-    color: COLORS.primary[600] 
+    color: COLORS.primary[600],
   },
-  description: { 
-    fontSize: 14, 
+  description: {
+    fontSize: 14,
     fontFamily: 'Inter-Regular',
-    color: '#555555', 
+    color: '#555555',
     lineHeight: 22,
     marginBottom: 16,
   },
@@ -8035,8 +8150,8 @@ const styles = StyleSheet.create({
     ...SHADOWS.small,
     marginBottom: 16,
   },
-  priceRow: { 
-    flexDirection: 'row', 
+  priceRow: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
@@ -8046,31 +8161,31 @@ const styles = StyleSheet.create({
     color: '#888888',
     marginBottom: 2,
   },
-  price: { 
-    fontSize: 28, 
-    fontFamily: 'Inter-Bold', 
-    color: '#1A1A1A' 
+  price: {
+    fontSize: 28,
+    fontFamily: 'Inter-Bold',
+    color: '#1A1A1A',
   },
   discountContainer: {
     alignItems: 'flex-end',
     gap: 4,
   },
-  originalPrice: { 
-    fontSize: 14, 
+  originalPrice: {
+    fontSize: 14,
     fontFamily: 'Inter-Regular',
-    color: '#999999', 
-    textDecorationLine: 'line-through' 
+    color: '#999999',
+    textDecorationLine: 'line-through',
   },
-  discountBadge: { 
-    backgroundColor: '#FEE2E2', 
-    paddingHorizontal: 10, 
-    paddingVertical: 4, 
+  discountBadge: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 6,
   },
-  discountText: { 
-    fontSize: 11, 
-    fontFamily: 'Inter-Bold', 
-    color: '#EF4444' 
+  discountText: {
+    fontSize: 11,
+    fontFamily: 'Inter-Bold',
+    color: '#EF4444',
   },
   addOnTotalRow: {
     flexDirection: 'row',
@@ -8145,7 +8260,7 @@ const styles = StyleSheet.create({
     minWidth: 30,
     textAlign: 'center',
   },
-  section: { 
+  section: {
     marginTop: 16,
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -8155,9 +8270,9 @@ const styles = StyleSheet.create({
   sectionHeader: {
     marginBottom: 12,
   },
-  sectionTitle: { 
-    fontSize: 17, 
-    fontFamily: 'Inter-SemiBold', 
+  sectionTitle: {
+    fontSize: 17,
+    fontFamily: 'Inter-SemiBold',
     color: '#1A1A1A',
     marginBottom: 2,
   },
@@ -8177,35 +8292,43 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  includesGrid: { 
-    flexDirection: 'row', 
-    flexWrap: 'wrap', 
+  // ─── What's Included — fixed layout ─────────────────────────────────────
+  includesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
-    marginTop: 4,
+    marginTop: 8,
   },
   includeItem: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 8,
-    width: '48%',
+    flexGrow: 1,
+    flexBasis: '48%',
+    minWidth: 140,
+    maxWidth: '100%',
     backgroundColor: '#F8F9FA',
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 10,
   },
-  includeCheck: { 
-    width: 20, 
-    height: 20, 
-    borderRadius: 10, 
-    backgroundColor: '#DCFCE7', 
-    justifyContent: 'center', 
-    alignItems: 'center' 
+  includeCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#DCFCE7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 1,
+    flexShrink: 0,
   },
-  includeText: { 
-    fontSize: 12, 
-    fontFamily: 'Inter-Medium', 
-    color: '#333333', 
-    flex: 1 
+  includeText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#333333',
+    flex: 1,
+    flexShrink: 1,
+    lineHeight: 18,
   },
   addOnCard: {
     flexDirection: 'row',
@@ -8321,7 +8444,7 @@ const styles = StyleSheet.create({
   chevronRotated: {
     transform: [{ rotate: '90deg' }],
   },
-  priceSummary: { 
+  priceSummary: {
     marginTop: 16,
     marginBottom: 8,
     backgroundColor: '#FFFFFF',
@@ -8337,25 +8460,25 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     color: '#1A1A1A',
   },
-  summaryRow: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     paddingVertical: 6,
   },
-  summaryLabel: { 
-    fontSize: 14, 
+  summaryLabel: {
+    fontSize: 14,
     fontFamily: 'Inter-Regular',
-    color: '#666666' 
+    color: '#666666',
   },
-  summaryValue: { 
-    fontSize: 14, 
+  summaryValue: {
+    fontSize: 14,
     fontFamily: 'Inter-Medium',
-    color: '#1A1A1A' 
+    color: '#1A1A1A',
   },
-  summaryDivider: { 
-    height: 1, 
-    backgroundColor: '#EEEEEE', 
-    marginVertical: 8 
+  summaryDivider: {
+    height: 1,
+    backgroundColor: '#EEEEEE',
+    marginVertical: 8,
   },
   summaryTotal: {
     flexDirection: 'row',
@@ -8363,15 +8486,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 4,
   },
-  totalLabel: { 
-    fontSize: 18, 
-    fontFamily: 'Inter-Bold', 
-    color: '#1A1A1A' 
+  totalLabel: {
+    fontSize: 18,
+    fontFamily: 'Inter-Bold',
+    color: '#1A1A1A',
   },
-  totalValue: { 
-    fontSize: 20, 
-    fontFamily: 'Inter-Bold', 
-    color: COLORS.primary[600] 
+  totalValue: {
+    fontSize: 20,
+    fontFamily: 'Inter-Bold',
+    color: COLORS.primary[600],
   },
   breakdownText: {
     fontSize: 12,
