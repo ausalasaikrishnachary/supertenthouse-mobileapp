@@ -2674,7 +2674,9 @@ export default function CartScreen() {
     grandTotal, 
     totalItems, 
     clearCart, 
-    fetchCart 
+    fetchCart,
+    isHydrated,
+    cartError,
   } = useCart();
   const { state: authState } = useAuth();
   const { toggle } = useWishlist();
@@ -3027,6 +3029,15 @@ const handleApplyCoupon = useCallback(async (code: string, discount: number, min
     );
   };
 
+  if (!isHydrated) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={COLORS.primary[600]} />
+        <Text style={styles.syncingText}>Loading cart...</Text>
+      </View>
+    );
+  }
+
   if (state.items.length === 0 && !syncing) {
     return (
       <View style={styles.container}>
@@ -3037,10 +3048,14 @@ const handleApplyCoupon = useCallback(async (code: string, discount: number, min
           <EmptyState
             icon={<ShoppingBag color={COLORS.neutral[400]} size={36} />}
             title="Your cart is empty"
-            message="Browse our premium collections and add items to your cart"
+            message={cartError || "Browse our premium collections and add items to your cart"}
           />
           <View style={{ paddingHorizontal: SPACING.xl }}>
-            <Button onPress={() => router.push('/(tabs)/categories')} fullWidth size="lg">Start Shopping</Button>
+            {cartError ? (
+              <Button onPress={() => customerId && fetchCart(customerId)} fullWidth size="lg">Retry</Button>
+            ) : (
+              <Button onPress={() => router.push('/(tabs)/categories')} fullWidth size="lg">Start Shopping</Button>
+            )}
           </View>
         </View>
       </View>
@@ -3100,7 +3115,7 @@ const handleApplyCoupon = useCallback(async (code: string, discount: number, min
               //   <Text style={styles.couponPlaceholder}>Apply coupon code</Text>
               //   <ChevronRight color={COLORS.neutral[400]} size={20} />
               // </TouchableOpacity>
-              <div></div>
+              null
             )}
           </View>
         }

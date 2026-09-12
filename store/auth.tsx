@@ -2664,6 +2664,7 @@
 import { createContext, useContext, useReducer, useEffect, ReactNode, useCallback, useMemo } from 'react';
 import { User } from '@/types';
 import { API_BASE_URL } from '@/constants/api';
+import { appStorage } from '@/utils/storage';
 
 type AuthState = {
   user: User | null;
@@ -2742,33 +2743,7 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Storage abstraction
-const storage = {
-  async getItem(key: string): Promise<string | null> {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        return window.localStorage.getItem(key);
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  },
-  async setItem(key: string, value: string): Promise<void> {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(key, value);
-      }
-    } catch {}
-  },
-  async removeItem(key: string): Promise<void> {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.removeItem(key);
-      }
-    } catch {}
-  },
-};
+const storage = appStorage;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, initialState);

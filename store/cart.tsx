@@ -2846,10 +2846,11 @@
 
 
 // store/cart.tsx
-import { createContext, useContext, useReducer, useEffect, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useReducer, useEffect, ReactNode, useCallback, useState } from 'react';
 import { CartItem } from '@/types';
 import { API_BASE_URL } from '@/services/api';
 import axios from 'axios';
+import { appStorage } from '@/utils/storage';
 
 type CartState = {
   items: CartItem[];
@@ -2962,6 +2963,8 @@ type CartContextType = {
   deliveryCharge: number;
   gst: number;
   grandTotal: number;
+  isHydrated: boolean;
+  cartError: string | null;
 };
 
 // Create the context
@@ -2969,30 +2972,29 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
 
 const STORAGE_KEY = 'cart_state';
 
-function getStorage() {
-  if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
-  return null;
-}
-
 export function CartProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(cartReducer, initialState);
+  const [isHydrated, setIsHydrated] = useState(false);
+  const [cartError, setCartError] = useState<string | null>(null);
 
   useEffect(() => {
-    const s = getStorage();
-    if (s) {
-      const saved = s.getItem(STORAGE_KEY);
+    let active = true;
+    (async () => {
+      const saved = await appStorage.getItem(STORAGE_KEY);
       if (saved) {
         try {
-          dispatch({ type: 'HYDRATE', payload: JSON.parse(saved) });
+          const parsed = JSON.parse(saved);
+          if (active && Array.isArray(parsed?.items)) dispatch({ type: 'HYDRATE', payload: { ...initialState, ...parsed } });
         } catch {}
       }
-    }
+      if (active) setIsHydrated(true);
+    })();
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
-    const s = getStorage();
-    if (s) s.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    if (isHydrated) void appStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }, [state, isHydrated]);
 
   const setCartItems = useCallback((items: CartItem[]) => {
     dispatch({ type: 'SET_CART_ITEMS', payload: items });
@@ -3005,6 +3007,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     }
     
     try {
+      setCartError(null);
       console.log('📦 Fetching cart for customer:', customerId);
       const response = await axios.get(`${API_BASE_URL}/cart/${customerId}`);
       console.log('📦 Cart response status:', response.status);
@@ -3029,12 +3032,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
         dispatch({ type: 'SET_CART_ITEMS', payload: items });
         return items;
       }
-      dispatch({ type: 'SET_CART_ITEMS', payload: [] });
+      setCartError('Unable to load your cart. Please try again.');
       return [];
     } catch (error: any) {
       console.error('Failed to fetch cart:', error);
       console.error('Error details:', error.response?.data || error.message);
-      dispatch({ type: 'SET_CART_ITEMS', payload: [] });
+      setCartError('Unable to load your cart. Please try again.');
       return [];
     }
   }, []);
@@ -3045,8 +3048,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
     let finalCustomerId = customerId;
     if (!finalCustomerId) {
       try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          const userStr = localStorage.getItem('auth_user');
+        {
+          const userStr = await appStorage.getItem('auth_user');
           if (userStr) {
             const user = JSON.parse(userStr);
             finalCustomerId = user.id;
@@ -3072,6 +3075,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
       id: item.id || `${productId}_${Date.now()}`,
       quantity: item.quantity || 1,
     };
+    // Optimistic update keeps the native cart visible while the server roundtrip
+    // is in progress or temporarily unavailable.
+    dispatch({ type: 'ADD_ITEM', payload: cartItem });
     
     try {
       const productData = {
@@ -3095,15 +3101,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
         const updatedCart = await fetchCart(finalCustomerId);
         console.log('📦 Cart updated successfully, items:', updatedCart.length);
       } else {
-        console.log('📦 Backend failed, updating local state as fallback');
-        dispatch({ type: 'ADD_ITEM', payload: cartItem });
+        console.log('📦 Backend failed; optimistic local item retained');
       }
       
     } catch (error: any) {
       console.error('❌ Failed to add item to backend:', error);
       console.error('Error details:', error.response?.data || error.message);
-      dispatch({ type: 'ADD_ITEM', payload: cartItem });
-      throw error;
+      setCartError('Cart is saved on this device and will sync when the server is available.');
     }
   }, [fetchCart]);
 
@@ -3372,6 +3376,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
     deliveryCharge,
     gst,
     grandTotal,
+    isHydrated,
+    cartError,
   };
 
   return (
