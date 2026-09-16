@@ -1,243 +1,136 @@
-// store/wishlist.tsx
-import { createContext, useContext, useReducer, useEffect, ReactNode, useCallback } from 'react';
-import { API_BASE_URL } from '@/services/api';
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, ReactNode } from 'react';
 import axios from 'axios';
+import { API_BASE_URL } from '@/services/api';
+import { appStorage } from '@/utils/storage';
 
-type WishlistState = {
-  productIds: string[];
+export type WishlistItemType = 'product' | 'package';
+export type WishlistEntry = { id: string; type: WishlistItemType };
+type WishlistState = { entries: WishlistEntry[]; productIds: string[]; isHydrated: boolean };
+type Action =
+  | { type: 'SET'; payload: WishlistEntry[] }
+  | { type: 'TOGGLE'; payload: WishlistEntry }
+  | { type: 'REMOVE'; payload: WishlistEntry }
+  | { type: 'CLEAR' }
+  | { type: 'HYDRATED' };
+
+const keyOf = (entry: WishlistEntry) => `${entry.type}:${entry.id}`;
+const normalizeType = (value: unknown): WishlistItemType => value === 'package' ? 'package' : 'product';
+const normalizeEntries = (value: unknown): WishlistEntry[] => {
+  if (!Array.isArray(value)) return [];
+  const entries = value.map((item): WishlistEntry | null => {
+    if (typeof item === 'string' || typeof item === 'number') return { id: String(item), type: 'product' };
+    if (!item || typeof item !== 'object') return null;
+    const row = item as any;
+    // API rows contain both a wishlist row `id` and the actual item ID.
+    // Always prefer the explicit item fields; local entries use `id` as fallback.
+    const id = row.item_id ?? row.product_id ?? row.productId ?? row.id;
+    return id == null ? null : { id: String(id), type: normalizeType(row.type ?? row.item_type ?? row.itemType) };
+  }).filter((item): item is WishlistEntry => Boolean(item));
+  return Array.from(new Map(entries.map(entry => [keyOf(entry), entry])).values());
 };
-
-type WishlistAction =
-  | { type: 'TOGGLE'; payload: string }
-  | { type: 'REMOVE'; payload: string }
-  | { type: 'SET'; payload: string[] }
-  | { type: 'CLEAR' };
-
-const initialState: WishlistState = { productIds: [] };
-
-function reducer(state: WishlistState, action: WishlistAction): WishlistState {
-  switch (action.type) {
-    case 'SET':
-      return { productIds: action.payload };
-    case 'TOGGLE':
-      return {
-        productIds: state.productIds.includes(action.payload)
-          ? state.productIds.filter((id) => id !== action.payload)
-          : [...state.productIds, action.payload],
-      };
-    case 'REMOVE':
-      return { productIds: state.productIds.filter((id) => id !== action.payload) };
-    case 'CLEAR':
-      return { productIds: [] };
-    default:
-      return state;
+const stateFrom = (entries: WishlistEntry[], isHydrated = true): WishlistState => ({
+  entries,
+  productIds: entries.filter(entry => entry.type === 'product').map(entry => entry.id),
+  isHydrated,
+});
+const initialState = stateFrom([], false);
+function reducer(state: WishlistState, action: Action): WishlistState {
+  if (action.type === 'HYDRATED') return { ...state, isHydrated: true };
+  if (action.type === 'SET') return stateFrom(normalizeEntries(action.payload));
+  if (action.type === 'CLEAR') return stateFrom([]);
+  if (action.type === 'REMOVE') return stateFrom(state.entries.filter(entry => keyOf(entry) !== keyOf(action.payload)));
+  if (action.type === 'TOGGLE') {
+    const exists = state.entries.some(entry => keyOf(entry) === keyOf(action.payload));
+    return stateFrom(exists ? state.entries.filter(entry => keyOf(entry) !== keyOf(action.payload)) : [...state.entries, action.payload]);
   }
+  return state;
 }
 
-type WishlistContextType = {
+type ContextValue = {
   state: WishlistState;
-  toggle: (productId: string, customerId?: string, productData?: any) => Promise<void>;
-  remove: (productId: string) => void;
-  has: (productId: string) => boolean;
-  fetchWishlist: (customerId: string) => Promise<void>;
+  toggle: (id: string, customerId?: string, itemData?: any, itemType?: WishlistItemType) => Promise<void>;
+  remove: (id: string, itemType?: WishlistItemType) => void;
+  has: (id: string, itemType?: WishlistItemType) => boolean;
+  fetchWishlist: (customerId: string) => Promise<WishlistEntry[]>;
   syncWishlist: (customerId: string) => Promise<void>;
   clearWishlist: (customerId: string) => Promise<void>;
 };
-
-const WishlistContext = createContext<WishlistContextType | undefined>(undefined);
-
+const WishlistContext = createContext<ContextValue | undefined>(undefined);
 const STORAGE_KEY = 'wishlist_state';
-
-function getStorage() {
-  if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
-  return null;
-}
 
 export function WishlistProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  // ─── Load from storage on mount ──────────────────────────────────────────────
   useEffect(() => {
-    const s = getStorage();
-    if (s) {
-      const saved = s.getItem(STORAGE_KEY);
+    (async () => {
+      const saved = await appStorage.getItem(STORAGE_KEY);
       if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (parsed && Array.isArray(parsed)) {
-            dispatch({ type: 'SET', payload: parsed });
-          }
-        } catch {}
+        try { dispatch({ type: 'SET', payload: normalizeEntries(JSON.parse(saved)) }); } catch {}
       }
-    }
+      dispatch({ type: 'HYDRATED' });
+    })();
   }, []);
 
-  // ─── Save to storage on change ──────────────────────────────────────────────
   useEffect(() => {
-    const s = getStorage();
-    if (s) {
-      s.setItem(STORAGE_KEY, JSON.stringify(state.productIds));
-    }
-  }, [state.productIds]);
+    if (state.isHydrated) appStorage.setItem(STORAGE_KEY, JSON.stringify(state.entries));
+  }, [state.entries, state.isHydrated]);
 
-  // ─── Fetch wishlist from backend ─────────────────────────────────────────────
+  const has = useCallback((id: string, itemType: WishlistItemType = 'product') =>
+    state.entries.some(entry => keyOf(entry) === `${itemType}:${String(id)}`), [state.entries]);
+
   const fetchWishlist = useCallback(async (customerId: string) => {
-    if (!customerId) {
-      console.log('📦 No customerId provided to fetchWishlist');
-      return;
-    }
-    
-    try {
-      console.log('📦 Fetching wishlist from backend for customer:', customerId);
-      const response = await axios.get(`${API_BASE_URL}/wishlist/${customerId}`);
-      
-      console.log('📦 Wishlist response:', response.data);
-      
-      if (response.data.success && response.data.data) {
-        const productIds = response.data.data.map((item: any) => String(item.product_id));
-        dispatch({ type: 'SET', payload: productIds });
-        console.log('📦 Wishlist fetched:', productIds.length, 'items');
-      } else {
-        dispatch({ type: 'SET', payload: [] });
-      }
-    } catch (error: any) {
-      console.error('❌ Failed to fetch wishlist:', error);
-      console.error('Error details:', error.response?.data || error.message);
-      dispatch({ type: 'SET', payload: [] });
-    }
+    if (!customerId) return [];
+    const response = await axios.get(`${API_BASE_URL}/wishlist/${customerId}`);
+    if (!response.data?.success || !Array.isArray(response.data.data)) throw new Error('Invalid wishlist response');
+    const entries = normalizeEntries(response.data.data);
+    dispatch({ type: 'SET', payload: entries });
+    return entries;
   }, []);
 
-  // ─── Toggle wishlist item - FIXED ────────────────────────────────────────────
- // ─── Toggle wishlist item - FIXED ────────────────────────────────────────────
-const toggle = useCallback(async (productId: string, customerId?: string, productData?: any) => {
-  console.log('🔄 Toggling wishlist:', { productId, customerId, productData });
-  console.log('📦 Current wishlist state:', state.productIds);
-  
-  const isInWishlist = state.productIds.includes(productId);
-  console.log('📦 Is in wishlist:', isInWishlist);
-  
-  dispatch({ type: 'TOGGLE', payload: productId });
-  console.log('📦 Local state toggled');
-  
-  if (customerId) {
+  const toggle = useCallback(async (id: string, customerId?: string, itemData?: any, itemType: WishlistItemType = 'product') => {
+    const entry = { id: String(id), type: itemType };
+    const exists = state.entries.some(current => keyOf(current) === keyOf(entry));
+    dispatch({ type: 'TOGGLE', payload: entry });
+    if (!customerId) return;
     try {
-      if (isInWishlist) {
-        // Remove from wishlist using query params
-        console.log('🗑️ Removing from wishlist backend:', { customerId, productId });
-        const deleteResponse = await axios.delete(`${API_BASE_URL}/wishlist/remove`, {
-          params: { customerId, productId }
-        });
-        console.log('✅ Removed from wishlist backend:', deleteResponse.data);
+      if (exists) {
+        await axios.delete(`${API_BASE_URL}/wishlist/remove`, { params: { customerId, productId: entry.id, itemType } });
       } else {
-        // Add to wishlist with product details
-        console.log('✅ Adding to wishlist backend:', { 
-          customerId, 
-          productId,
-          productData 
+        await axios.post(`${API_BASE_URL}/wishlist/add`, {
+          customerId, productId: entry.id, itemType,
+          productName: itemData?.name || '', price: itemData?.price || 0, image: itemData?.image || '',
         });
-        
-        const addResponse = await axios.post(`${API_BASE_URL}/wishlist/add`, {
-          customerId,
-          productId,
-          productName: productData?.name || '',
-          price: productData?.price || 0,
-          image: productData?.image || '',
-        });
-        console.log('✅ Added to wishlist backend:', addResponse.data);
       }
-    } catch (error: any) {
-      console.error('❌ Failed to sync wishlist with backend:', error);
-      console.error('Error details:', error.response?.data || error.message);
-      dispatch({ type: 'TOGGLE', payload: productId });
+    } catch (error) {
+      dispatch({ type: 'TOGGLE', payload: entry });
       throw error;
     }
-  } else {
-    console.log('📦 No customerId, local toggle only');
-  }
-}, [state.productIds]);
+  }, [state.entries]);
 
-  // ─── Remove from wishlist (local only) ──────────────────────────────────────
-  const remove = useCallback((productId: string) => {
-    dispatch({ type: 'REMOVE', payload: productId });
+  const remove = useCallback((id: string, itemType: WishlistItemType = 'product') => {
+    dispatch({ type: 'REMOVE', payload: { id: String(id), type: itemType } });
   }, []);
 
-  // ─── Check if product is in wishlist ────────────────────────────────────────
-  const has = useCallback((productId: string) => {
-    return state.productIds.includes(productId);
-  }, [state.productIds]);
-
-  // ─── Sync wishlist with backend ─────────────────────────────────────────────
   const syncWishlist = useCallback(async (customerId: string) => {
-    if (!customerId) {
-      console.log('📦 No customerId provided to syncWishlist');
-      return;
+    for (const entry of state.entries) {
+      await axios.post(`${API_BASE_URL}/wishlist/add`, { customerId, productId: entry.id, itemType: entry.type });
     }
-    
-    if (state.productIds.length === 0) {
-      console.log('📦 Wishlist is empty, nothing to sync');
-      return;
-    }
-    
-    try {
-      console.log('📦 Syncing wishlist with backend:', state.productIds);
-      
-      for (const productId of state.productIds) {
-        await axios.post(`${API_BASE_URL}/wishlist/add`, {
-          customerId,
-          productId,
-        });
-      }
-      console.log('✅ Wishlist synced with backend');
-    } catch (error: any) {
-      console.error('❌ Failed to sync wishlist:', error);
-      console.error('Error details:', error.response?.data || error.message);
-    }
-  }, [state.productIds]);
+  }, [state.entries]);
 
-  // ─── Clear wishlist ──────────────────────────────────────────────────────────
   const clearWishlist = useCallback(async (customerId: string) => {
-    if (!customerId) {
-      console.log('📦 No customerId provided to clearWishlist');
-      return;
-    }
-    
-    try {
-      console.log('🗑️ Clearing wishlist for customer:', customerId);
-      
-      // Remove all items one by one
-      for (const productId of state.productIds) {
-        await axios.delete(`${API_BASE_URL}/wishlist/remove`, {
-          data: { customerId, productId },
-        });
-      }
-      
-      dispatch({ type: 'CLEAR' });
-      console.log('✅ Wishlist cleared from backend and local');
-    } catch (error: any) {
-      console.error('❌ Failed to clear wishlist:', error);
-      console.error('Error details:', error.response?.data || error.message);
-    }
-  }, [state.productIds]);
+    await Promise.all(state.entries.map(entry => axios.delete(`${API_BASE_URL}/wishlist/remove`, {
+      params: { customerId, productId: entry.id, itemType: entry.type },
+    })));
+    dispatch({ type: 'CLEAR' });
+  }, [state.entries]);
 
-  return (
-    <WishlistContext.Provider
-      value={{
-        state,
-        toggle,
-        remove,
-        has,
-        fetchWishlist,
-        syncWishlist,
-        clearWishlist,
-      }}
-    >
-      {children}
-    </WishlistContext.Provider>
-  );
+  const value = useMemo(() => ({ state, toggle, remove, has, fetchWishlist, syncWishlist, clearWishlist }),
+    [state, toggle, remove, has, fetchWishlist, syncWishlist, clearWishlist]);
+  return <WishlistContext.Provider value={value}>{children}</WishlistContext.Provider>;
 }
 
 export function useWishlist() {
-  const ctx = useContext(WishlistContext);
-  if (!ctx) throw new Error('useWishlist must be used within WishlistProvider');
-  return ctx;
+  const value = useContext(WishlistContext);
+  if (!value) throw new Error('useWishlist must be used within WishlistProvider');
+  return value;
 }

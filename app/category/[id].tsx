@@ -22,6 +22,7 @@ import { useCart } from '@/store/cart';
 import { useToast } from '@/store/toast';
 import { RatingBadge } from '@/components/ui/RatingBadge';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '@/store/auth';
 
 const { width } = Dimensions.get('window');
 
@@ -34,6 +35,7 @@ function ListCard({ product, index }: { product: Product; index: number }) {
   const { has, toggle } = useWishlist();
   const { addItem } = useCart();
   const { show } = useToast();
+  const { state: authState } = useAuth();
   const isWL = has(product.id);
 
   return (
@@ -71,7 +73,12 @@ function ListCard({ product, index }: { product: Product; index: number }) {
           <View style={lc.actions}>
             <TouchableOpacity
               style={lc.wishBtn}
-              onPress={() => { toggle(product.id); show(isWL ? 'Removed' : 'Saved!', 'info'); }}
+              onPress={async () => {
+                try {
+                  await toggle(product.id, authState.user?.id, { name: product.name, price: product.price, image: product.images?.[0] || '' }, 'product');
+                  show(isWL ? 'Removed' : 'Saved!', 'info');
+                } catch { show('Failed to update wishlist', 'error'); }
+              }}
             >
               <Heart size={16} color={isWL ? COLORS.error : COLORS.neutral[500]} fill={isWL ? COLORS.error : 'transparent'} />
             </TouchableOpacity>

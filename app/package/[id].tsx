@@ -7514,10 +7514,10 @@ export default function PackageDetailScreen() {
     router.push('/checkout');
   }, [handleAddToCart, router]);
 
-  const handleWishlistToggle = useCallback(() => {
+  const handleWishlistToggle = useCallback(async () => {
     if (!pkg) return;
 
-    const isWishlisted = has(pkg.id);
+    const isWishlisted = has(pkg.id, 'package');
     const customerId = authState?.user?.id;
 
     const productData = {
@@ -7526,8 +7526,12 @@ export default function PackageDetailScreen() {
       image: pkg.images?.[0] || pkg.image || '',
     };
 
-    toggle(pkg.id, customerId, productData);
-    show(isWishlisted ? 'Removed from wishlist' : 'Added to wishlist ❤️');
+    try {
+      await toggle(pkg.id, customerId, productData, 'package');
+      show(isWishlisted ? 'Removed from wishlist' : 'Added to wishlist ❤️');
+    } catch {
+      show('Failed to update wishlist', 'error');
+    }
   }, [pkg, has, toggle, show, authState]);
 
   const handleGoBack = useCallback(() => {
@@ -7591,7 +7595,7 @@ export default function PackageDetailScreen() {
     );
   }
 
-  const isWishlisted = has(pkg.id);
+  const isWishlisted = has(pkg.id, 'package');
 
   const getTierColors = () => {
     switch (pkg.tier) {

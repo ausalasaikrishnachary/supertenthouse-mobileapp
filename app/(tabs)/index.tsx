@@ -2707,6 +2707,7 @@ function BestSellerCard({ product, rank, index }: { product: Product; rank: numb
   const { has, toggle } = useWishlist();
   const { addItem } = useCart();
   const { show } = useToast();
+  const { state: authState } = useAuth();
   const isWishlisted = has(product.id);
   const isGold = rank === 0;
 
@@ -2741,7 +2742,12 @@ function BestSellerCard({ product, rank, index }: { product: Product; rank: numb
           <Image source={{ uri: product.images[0] }} style={bs.image} />
           <TouchableOpacity
             style={bs.wishBtn}
-            onPress={() => { toggle(product.id); show(isWishlisted ? 'Removed from wishlist' : 'Saved!', 'info'); }}
+            onPress={async () => {
+              try {
+                await toggle(product.id, authState.user?.id, { name: product.name, price: product.price, image: product.images?.[0] || '' }, 'product');
+                show(isWishlisted ? 'Removed from wishlist' : 'Saved!', 'info');
+              } catch { show('Failed to update wishlist', 'error'); }
+            }}
           >
             <Heart
               size={14}
@@ -2877,7 +2883,7 @@ const bs = StyleSheet.create({
 export default function HomeScreen() {
   const router = useRouter();
   const { state } = useAuth();
-  const { state: wishState } = useWishlist();
+  const { state: wishState, fetchWishlist } = useWishlist();
   const [categories, setCategories] = useState<Category[]>([]);
   const [trending, setTrending] = useState<Product[]>([]);
   const [bestSellers, setBestSellers] = useState<Product[]>([]);
@@ -2912,6 +2918,22 @@ export default function HomeScreen() {
   useEffect(() => {
     fetchUnreadCount();
   }, [fetchUnreadCount]);
+
+  // Keep the header count tied to the authenticated customer's persisted
+  // wishlist. Local state still updates immediately for add/remove actions.
+  const refreshWishlist = useCallback(async () => {
+    if (!customerId) return;
+    try {
+      await fetchWishlist(String(customerId));
+    } catch (error) {
+      // Retain the hydrated/local count when the API is temporarily unavailable.
+      console.error('Failed to refresh wishlist count:', error);
+    }
+  }, [customerId, fetchWishlist]);
+
+  useEffect(() => {
+    refreshWishlist();
+  }, [refreshWishlist]);
 
   // ─── FIX: Updated loadData with proper banner mapping ──────────────────────
   const loadData = useCallback(async () => {
@@ -2964,9 +2986,9 @@ export default function HomeScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadData();
-    await fetchUnreadCount();
+    await Promise.all([fetchUnreadCount(), refreshWishlist()]);
     setRefreshing(false);
-  }, [loadData, fetchUnreadCount]);
+  }, [loadData, fetchUnreadCount, refreshWishlist]);
 
   const scrollY = useSharedValue(0);
   const headerStyle = useAnimatedStyle(() => ({
@@ -3010,9 +3032,20 @@ export default function HomeScreen() {
                 </View>
               )}
             </TouchableOpacity>
-            <TouchableOpacity style={styles.iconBtn} onPress={() => router.push('/wishlist')}>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => router.push('/wishlist')}
+              accessibilityRole="button"
+              accessibilityLabel={`Wishlist, ${wishState.entries.length} ${wishState.entries.length === 1 ? 'item' : 'items'}`}
+            >
               <Heart color={COLORS.neutral[700]} size={22} />
-              {wishState.productIds.length > 0 && <View style={styles.notifDot} />}
+              {wishState.entries.length > 0 && (
+                <View style={styles.notifBadge}>
+                  <Text style={styles.notifBadgeText}>
+                    {wishState.entries.length > 99 ? '99+' : wishState.entries.length}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
             <TouchableOpacity onPress={() => router.push('/(tabs)/profile')}>
               <Image

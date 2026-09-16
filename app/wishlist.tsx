@@ -1213,7 +1213,7 @@ import { useRouter } from 'expo-router';
 import { ArrowLeft, Heart, ShoppingBag, Trash2, Star } from 'lucide-react-native';
 import { COLORS, SPACING, RADIUS, SHADOWS } from '@/constants/theme';
 import { mockApi, API_BASE_URL } from '@/services/api';
-import { Product } from '@/types';
+import { Product, Package } from '@/types';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useWishlist } from '@/store/wishlist';
 import { useCart } from '@/store/cart';
@@ -1222,6 +1222,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/store/auth';
 import axios from 'axios';
 
+type WishlistDisplayItem = {
+  id: string;
+  itemType: 'product' | 'package';
+  name: string;
+  price: number;
+  images: string[];
+  rating: number;
+  reviewCount: number;
+};
+
 export default function WishlistScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -1229,7 +1239,7 @@ export default function WishlistScreen() {
   const { addItem, fetchCart } = useCart();
   const { state: authState } = useAuth();
   const { show } = useToast();
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<WishlistDisplayItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [movingToCart, setMovingToCart] = useState<string | null>(null);
@@ -1252,15 +1262,24 @@ export default function WishlistScreen() {
         console.log('📦 Loading wishlist...');
       }
       
-      if (customerId) {
-        await fetchWishlist(customerId);
-      }
-      
-      if (state.productIds.length > 0) {
-        const all = await mockApi.getProducts();
-        const filtered = all.filter((p) => state.productIds.includes(p.id));
-        setProducts(filtered);
-        console.log('📦 Wishlist products loaded:', filtered.length);
+      const entries = customerId ? await fetchWishlist(customerId) : state.entries;
+
+      if (entries.length > 0) {
+        const [allProducts, allPackages] = await Promise.all([mockApi.getProducts(), mockApi.getPackages()]);
+        const productMap = new Map(allProducts.map((item: Product) => [String(item.id), item]));
+        const packageMap = new Map(allPackages.map((item: Package) => [String(item.id), item]));
+        const resolved = entries.map(entry => {
+          if (entry.type === 'package') {
+            const item = packageMap.get(entry.id);
+            return item ? { id: String(item.id), itemType: 'package' as const, name: item.name, price: item.price,
+              images: item.images?.length ? item.images : [item.image].filter(Boolean), rating: item.rating || 0, reviewCount: item.reviewCount || 0 } : null;
+          }
+          const item = productMap.get(entry.id);
+          return item ? { id: String(item.id), itemType: 'product' as const, name: item.name, price: item.price,
+            images: item.images || [], rating: item.rating || 0, reviewCount: item.reviewCount || 0 } : null;
+        }).filter((item): item is WishlistDisplayItem => Boolean(item));
+        setProducts(resolved);
+        console.log('📦 Wishlist items loaded:', resolved.length);
       } else {
         setProducts([]);
         console.log('📦 Wishlist is empty');
@@ -1275,7 +1294,7 @@ export default function WishlistScreen() {
       }
       isLoadingRef.current = false;
     }
-  }, [customerId, fetchWishlist, state.productIds, show]);
+  }, [customerId, fetchWishlist, state.entries, show]);
 
   // ─── Initial load - only once ──────────────────────────────────────────────
   useEffect(() => {
@@ -1307,7 +1326,7 @@ export default function WishlistScreen() {
   }, [load]);
 
   // ─── Move to Cart ─────────────────────────────────────────────────────────────
-  const handleMoveToCart = useCallback(async (product: Product) => {
+  const handleMoveToCart = useCallback(async (product: WishlistDisplayItem) => {
     console.log('🛒 Moving to cart:', { product, customerId });
     
     if (!customerId) {
@@ -1316,7 +1335,8 @@ export default function WishlistScreen() {
       return;
     }
 
-    setMovingToCart(product.id);
+    const itemKey = `${product.itemType}:${product.id}`;
+    setMovingToCart(itemKey);
     
     try {
       const cartItem = {
@@ -1326,21 +1346,22 @@ export default function WishlistScreen() {
         image: product.images?.[0] || 'https://via.placeholder.com/300x300',
         price: product.price,
         quantity: 1,
-        type: 'product' as const,
+        type: product.itemType,
+        ...(product.itemType === 'package' ? { packageId: product.id } : {}),
       };
 
       await addItem(cartItem, customerId);
       await fetchCart(customerId);
       
       const response = await axios.delete(`${API_BASE_URL}/wishlist/remove`, {
-        params: { customerId, productId: product.id }
+        params: { customerId, productId: product.id, itemType: product.itemType }
       });
       
       console.log('🗑️ Move to cart - Delete response:', response.data);
       
       if (response.data.success) {
-        remove(product.id);
-        setProducts(prev => prev.filter(p => p.id !== product.id));
+        remove(product.id, product.itemType);
+        setProducts(prev => prev.filter(p => !(p.id === product.id && p.itemType === product.itemType)));
         show(`${product.name} moved to cart 🛒`);
         console.log('✅ Item moved to cart successfully');
       }
@@ -1354,7 +1375,7 @@ export default function WishlistScreen() {
   }, [customerId, addItem, fetchCart, remove, show, router]);
 
   // ─── DELETE SINGLE ITEM ──────────────────────────────────────────────────────
-  const deleteSingleItem = useCallback(async (productId: string, productName: string) => {
+  const deleteSingleItem = useCallback(async (productId: string, productName: string, itemType: 'product' | 'package') => {
     console.log('🗑️ Deleting single item:', { productId, productName, customerId });
     
     if (!customerId) {
@@ -1366,16 +1387,19 @@ export default function WishlistScreen() {
       setSyncing(true);
       
       const response = await axios.delete(`${API_BASE_URL}/wishlist/remove`, {
-        params: { customerId, productId }
+        params: { customerId, productId, itemType }
       });
       
       console.log('🗑️ Delete response:', response.data);
       
-      if (response.data.success) {
-        remove(productId);
-        setProducts(prev => prev.filter(p => p.id !== productId));
+      if (response.data.success && Number(response.data.affectedRows) > 0) {
+        remove(productId, itemType);
+        setProducts(prev => prev.filter(p => !(p.id === productId && p.itemType === itemType)));
         show(`${productName} removed from wishlist`, 'info');
         console.log('✅ Item removed successfully');
+      } else if (response.data.success && response.data.exists === false) {
+        await load(false);
+        show(`${productName} was already removed`, 'info');
       } else {
         show('Failed to remove from wishlist', 'error');
       }
@@ -1411,7 +1435,7 @@ export default function WishlistScreen() {
       for (const product of products) {
         try {
           const response = await axios.delete(`${API_BASE_URL}/wishlist/remove`, {
-            params: { customerId, productId: product.id }
+            params: { customerId, productId: product.id, itemType: product.itemType }
           });
           
           if (response.data.success) {
@@ -1426,7 +1450,7 @@ export default function WishlistScreen() {
       console.log(`📊 Successfully removed: ${successCount} items`);
       
       for (const product of products) {
-        remove(product.id);
+        remove(product.id, product.itemType);
       }
       setProducts([]);
       
@@ -1445,8 +1469,8 @@ export default function WishlistScreen() {
   }, [customerId, products, remove, show, load]);
 
   // ─── Handle Delete Single Item ──────────────────────────────────────────────
-  const handleDeleteSingle = useCallback((productId: string, productName: string) => {
-    deleteSingleItem(productId, productName);
+  const handleDeleteSingle = useCallback((productId: string, productName: string, itemType: 'product' | 'package') => {
+    deleteSingleItem(productId, productName, itemType);
   }, [deleteSingleItem]);
 
   // ─── Handle Clear All ────────────────────────────────────────────────────────
@@ -1491,12 +1515,12 @@ export default function WishlistScreen() {
   };
 
   // ─── Render Item ─────────────────────────────────────────────────────────────
-  const renderItem = ({ item }: { item: Product }) => {
+  const renderItem = ({ item }: { item: WishlistDisplayItem }) => {
     console.log('🎨 Rendering item:', { id: item.id, name: item.name });
     return (
       <View style={styles.card}>
         <TouchableOpacity 
-          onPress={() => router.push(`/product/${item.id}`)}
+          onPress={() => router.push(item.itemType === 'package' ? `/package/${item.id}` : `/product/${item.id}`)}
           activeOpacity={0.8}
         >
           <View style={styles.cardImageWrap}>
@@ -1510,7 +1534,7 @@ export default function WishlistScreen() {
         
         <View style={styles.cardBody}>
           <TouchableOpacity 
-            onPress={() => router.push(`/product/${item.id}`)}
+            onPress={() => router.push(item.itemType === 'package' ? `/package/${item.id}` : `/product/${item.id}`)}
             activeOpacity={0.7}
           >
             <Text style={styles.cardName} numberOfLines={2}>{item.name}</Text>
@@ -1529,10 +1553,10 @@ export default function WishlistScreen() {
             <TouchableOpacity 
               style={styles.cartBtn} 
               onPress={() => handleMoveToCart(item)}
-              disabled={movingToCart === item.id || syncing}
+              disabled={movingToCart === `${item.itemType}:${item.id}` || syncing}
               activeOpacity={0.8}
             >
-              {movingToCart === item.id ? (
+              {movingToCart === `${item.itemType}:${item.id}` ? (
                 <ActivityIndicator size="small" color={COLORS.white} />
               ) : (
                 <>
@@ -1544,9 +1568,11 @@ export default function WishlistScreen() {
             
             <TouchableOpacity 
               style={styles.removeBtn} 
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${item.name} from wishlist`}
               onPress={() => {
                 console.log('🗑️ Trash icon pressed for item:', item);
-                handleDeleteSingle(item.id, item.name);
+                handleDeleteSingle(item.id, item.name, item.itemType);
               }}
               disabled={syncing}
               activeOpacity={0.7}
@@ -1652,7 +1678,7 @@ export default function WishlistScreen() {
           />
         }
         renderItem={renderItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => `${item.itemType}:${item.id}`}
         ListFooterComponent={
           products.length > 0 ? (
             <View style={styles.footer}>

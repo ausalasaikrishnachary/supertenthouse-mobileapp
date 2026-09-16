@@ -2959,7 +2959,11 @@ const handleApplyCoupon = useCallback(async (code: string, discount: number, min
     
     try {
       setSyncing(true);
-      toggle(item.productId);
+      await toggle(item.productId, customerId, {
+        name: item.name,
+        price: item.price,
+        image: item.image,
+      }, item.type === 'package' ? 'package' : 'product');
       await directDeleteItem(item);
       show('Moved to wishlist');
     } catch (error) {

@@ -392,7 +392,7 @@ export default function ProfileScreen() {
   // ─── Menu Items ─────────────────────────────────────────────────────────────
   const menuItems = [
     { icon: Package,   label: 'My Orders',       action: () => router.push('/(tabs)/orders') },
-    { icon: Heart,     label: 'Wishlist',        badge: wishState.productIds.length, action: () => router.push('/wishlist') },
+    { icon: Heart,     label: 'Wishlist',        badge: wishState.entries.length, action: () => router.push('/wishlist') },
     { icon: MapPin,    label: 'Saved Addresses',  action: () => router.push('/addresses') },
     { icon: Bell,      label: 'Notifications',   action: () => router.push('/notifications') },
     // { icon: HelpCircle,label: 'FAQs & Support',  action: () => router.push('/support') },
@@ -476,7 +476,7 @@ export default function ProfileScreen() {
       <View style={styles.statsRow}>
         {[
           { val: loading ? '...' : String(orderCount), lbl: 'Orders' },
-          { val: String(wishState.productIds.length), lbl: 'Wishlist' },
+          { val: String(wishState.entries.length), lbl: 'Wishlist' },
           { val: loading ? '...' : String(addressCount), lbl: 'Addresses' },
         ].map((s, i) => (
           <View key={i} style={styles.statCard}>

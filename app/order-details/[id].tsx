@@ -1732,7 +1732,7 @@ export default function OrderDetailsScreen() {
     return statusConfig[status] || statusConfig.pending;
   };
 
-  const isInvoiceAvailable = Boolean(order?.invoice_number?.trim());
+  const isInvoiceAvailable = Boolean(order?.invoice_number?.trim()) && String(order?.status || '').trim().toLowerCase() === 'completed';
 
   // ─── Download Invoice ──────────────────────────────────────────────────────
   const handleDownloadInvoice = useCallback(async () => {
@@ -1744,6 +1744,11 @@ export default function OrderDetailsScreen() {
 
     if (!order.invoice_number?.trim()) {
       show('Invoice has not been generated yet', 'info');
+      return;
+    }
+
+    if (String(order.status || '').trim().toLowerCase() !== 'completed') {
+      show('Invoice is available only after the order is completed', 'info');
       return;
     }
 
@@ -1848,6 +1853,11 @@ export default function OrderDetailsScreen() {
 
     if (!order.invoice_number?.trim()) {
       show('Invoice has not been generated yet', 'info');
+      return;
+    }
+
+    if (String(order.status || '').trim().toLowerCase() !== 'completed') {
+      show('Invoice is available only after the order is completed', 'info');
       return;
     }
 
@@ -2150,7 +2160,7 @@ export default function OrderDetailsScreen() {
         </View>
       </View>
 
-      {/* Any generated invoice is downloadable, independently of order status. */}
+      {/* Invoice actions become available only after the order is completed. */}
       {isInvoiceAvailable && (
         <View style={styles.actions}>
           <TouchableOpacity
