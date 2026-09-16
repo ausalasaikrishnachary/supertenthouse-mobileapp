@@ -190,7 +190,7 @@ function SupportCard() {
           </View>
           <View>
             <Text style={sc.btnLabel}>Call Us</Text>
-            <Text style={sc.btnNumber}>+919876543210</Text>
+            {/* <Text style={sc.btnNumber}>+919876543210</Text> */}
           </View>
         </TouchableOpacity>
 
@@ -200,15 +200,15 @@ function SupportCard() {
           </View>
           <View>
             <Text style={[sc.btnLabel, { color: COLORS.white }]}>WhatsApp</Text>
-            <Text style={[sc.btnNumber, { color: 'rgba(255,255,255,0.75)' }]}>Chat instantly</Text>
+            {/* <Text style={[sc.btnNumber, { color: 'rgba(255,255,255,0.75)' }]}>Chat instantly</Text> */}
           </View>
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity style={sc.chatLink} onPress={() => router.push('/support')}>
+      {/* <TouchableOpacity style={sc.chatLink} onPress={() => router.push('/support')}>
         <Headphones color={COLORS.primary[600]} size={14} />
         <Text style={sc.chatLinkText}>Open full support centre  →</Text>
-      </TouchableOpacity>
+      </TouchableOpacity> */}
     </Animated.View>
   );
 }
@@ -395,7 +395,7 @@ export default function ProfileScreen() {
     { icon: Heart,     label: 'Wishlist',        badge: wishState.productIds.length, action: () => router.push('/wishlist') },
     { icon: MapPin,    label: 'Saved Addresses',  action: () => router.push('/addresses') },
     { icon: Bell,      label: 'Notifications',   action: () => router.push('/notifications') },
-    { icon: HelpCircle,label: 'FAQs & Support',  action: () => router.push('/support') },
+    // { icon: HelpCircle,label: 'FAQs & Support',  action: () => router.push('/support') },
     { icon: Shield,    label: 'Terms & Conditions', action: () => setShowTerms(true) },
     { icon: FileText,  label: 'Privacy Policy',  action: () => setShowPrivacy(true) },
   ];
@@ -524,7 +524,7 @@ export default function ProfileScreen() {
         <Text style={styles.logoutText}>Logout</Text>
       </TouchableOpacity>
 
-      <Text style={styles.version}>Super Tent House v1.0.0</Text>
+      {/* <Text style={styles.version}>Super Tent House v1.0.0</Text> */}
       <View style={{ height: 40 }} />
 
       <Modal
