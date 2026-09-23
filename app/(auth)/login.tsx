@@ -19,7 +19,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
-  const [remember, setRemember] = useState(true);
+  const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
@@ -111,7 +111,7 @@ export default function LoginScreen() {
             Sign In
           </Button>
 
-          <TouchableOpacity style={styles.biometricBtn} onPress={handleLogin}>
+          {/* <TouchableOpacity style={styles.biometricBtn} onPress={handleLogin}>
             <Fingerprint color={COLORS.primary[600]} size={22} />
             <Text style={styles.biometricText}>Use Biometric Login</Text>
           </TouchableOpacity>
@@ -120,12 +120,12 @@ export default function LoginScreen() {
             <View style={styles.dividerLine} />
             <Text style={styles.dividerText}>or continue with</Text>
             <View style={styles.dividerLine} />
-          </View>
+          </View> */}
 
-          <TouchableOpacity style={styles.googleBtn} onPress={handleLogin}>
+          {/* <TouchableOpacity style={styles.googleBtn} onPress={handleLogin}>
             <Image source={{ uri: 'https://www.google.com/favicon.ico' }} style={styles.googleIcon} />
             <Text style={styles.googleText}>Continue with Google</Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </View>
 
         <View style={styles.footer}>

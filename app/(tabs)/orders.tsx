@@ -310,7 +310,7 @@ export default function OrdersScreen() {
                 <View style={styles.orderTotalWrap}>
                   <Text style={styles.orderTotalLabel}>Total</Text>
                   <Text style={styles.orderTotalValue}>
-                    ₹{(item.grand_total || 0).toLocaleString('en-IN')}
+                    ₹{(item.subtotal || item.grand_total).toLocaleString('en-IN')}
                   </Text>
                 </View>
               </View>

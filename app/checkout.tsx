@@ -18,6 +18,8 @@ import { useToast } from '@/store/toast';
 import { useAuth } from '@/store/auth';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { addressService, orderService, Address as AddressType, AddressInput, OrderInput } from '@/services/address';
+import axios from 'axios';
+import { API_BASE_URL } from '@/services/api';
 
 const { width } = Dimensions.get('window');
 
@@ -536,16 +538,28 @@ function AddAddressModal({ visible, onClose, onSave }: AddAddressModalProps) {
             </View>
 
             <View style={amStyles.formGroup}>
-              <Text style={amStyles.formLabel}>Phone Number <Text style={amStyles.required}>*</Text></Text>
-              <TextInput
-                style={amStyles.input}
-                placeholder="Enter phone number"
-                placeholderTextColor={COLORS.neutral[400]}
-                value={phone}
-                onChangeText={setPhone}
-                keyboardType="phone-pad"
-              />
-            </View>
+  <Text style={amStyles.formLabel}>
+    Phone Number <Text style={amStyles.required}>*</Text>
+  </Text>
+  <TextInput
+    style={amStyles.input}
+    placeholder="9876543210"
+    placeholderTextColor={COLORS.neutral[400]}
+    value={phone}
+    onChangeText={(text) => {
+      // ✅ Strip non-digits and cap at 10
+      const digits = text.replace(/\D/g, '').slice(0, 10);
+      setPhone(digits);
+    }}
+    keyboardType="number-pad"
+    maxLength={10}
+    inputMode="numeric"
+    returnKeyType="done"
+  />
+  {phone.length > 0 && phone.length < 10 && (
+    <Text style={amStyles.phoneError}>Phone number must be 10 digits</Text>
+  )}
+</View>
 
             <View style={amStyles.formGroup}>
               <Text style={amStyles.formLabel}>Address Line 1 <Text style={amStyles.required}>*</Text></Text>
@@ -623,6 +637,13 @@ const amStyles = StyleSheet.create({
     paddingBottom: 36,
     maxHeight: '90%',
   },
+  phoneError: {
+  fontSize: 12,
+  fontFamily: 'Inter-Regular',
+  color: COLORS.error,
+  marginTop: 4,
+  marginLeft: 4,
+},
   handle: {
     width: 40,
     height: 4,
@@ -693,14 +714,14 @@ const amStyles = StyleSheet.create({
   },
 });
 
-// ─── Main checkout screen ─────────────────────────────────────────────────────
-// Only showing step 0 (Address) - Steps 1, 2, and 3 are hidden/commented out
+
 const steps = ['Address']; // Removed 'Event Details', 'Payment', 'Summary'
 
 export default function CheckoutScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { state, subtotal, deliveryCharge, gst, grandTotal, clearCart } = useCart();
+  // ✅ deliveryCharge and gst removed — we only need subtotal, couponDiscount, and the clear/fetch helpers
+  const { state, subtotal, clearCart, fetchCart } = useCart();
   const { state: authState } = useAuth();
   const { show } = useToast();
 
@@ -709,26 +730,13 @@ export default function CheckoutScreen() {
   const [addresses, setAddresses] = useState<AddressType[]>([]);
   const [showAddAddress, setShowAddAddress] = useState(false);
   const [loadingAddress, setLoadingAddress] = useState(true);
-
-  // ─── Commented out Event Details state ──────────────────────────────────────
-  // const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  // const [showCal, setShowCal] = useState(false);
-  // const [timeHour, setTimeHour] = useState(6);
-  // const [timeMin, setTimeMin] = useState(0);
-  // const [timeMer, setTimeMer] = useState<'AM' | 'PM'>('PM');
-  // const [showTime, setShowTime] = useState(false);
-  // const [eventType, setEventType] = useState('Wedding');
-  // const [venue, setVenue] = useState('');
-  // const [guestCount, setGuestCount] = useState('');
-  // const [instructions, setInstructions] = useState('');
-  // const [processing, setProcessing] = useState(false);
+  const [placingOrder, setPlacingOrder] = useState(false);
 
   const customerId = authState.user?.id;
-  // const eventDateDisplay = selectedDate ? formatDisplay(selectedDate) : '';
-  // const eventTimeDisplay = `${pad(timeHour)}:${pad(timeMin)} ${timeMer}`;
-  // const eventTypes = ['Wedding', 'Reception', 'Birthday', 'Corporate', 'Festival', 'Other'];
 
-  // ─── Load addresses from database ───────────────────────────────────────────
+  // ✅ Grand Total = Subtotal − Coupon Discount (no delivery, no GST)
+  const finalTotal = Math.max(0, subtotal - (state.couponDiscount || 0));
+
   useEffect(() => {
     const loadAddresses = async () => {
       if (!customerId) {
@@ -886,91 +894,6 @@ export default function CheckoutScreen() {
     }
   };
 
-  // ─── Create Order ──────────────────────────────────────────────────────────────
-  // ─── Commented out - moved to simplified order creation ──────────────────────
-  /*
-  const createOrder = async () => {
-    if (!customerId) {
-      show('Please login to place order', 'error');
-      return;
-    }
-
-    const selectedAddress = addresses[selectedAddr];
-    if (!selectedAddress) {
-      show('Please select an address', 'error');
-      return;
-    }
-
-    if (!selectedDate || !venue || !guestCount) {
-      show('Please fill all event details', 'error');
-      return;
-    }
-
-    try {
-      setProcessing(true);
-
-      const orderData: OrderInput = {
-        customerId: customerId,
-        customerName: authState.user?.name || '',
-        customerEmail: authState.user?.email || '',
-        customerPhone: authState.user?.phone || '',
-        address: {
-          id: selectedAddress.id,
-          label: selectedAddress.label,
-          fullName: selectedAddress.fullName,
-          phone: selectedAddress.phone,
-          line1: selectedAddress.line1,
-          line2: selectedAddress.line2 || '',
-          city: selectedAddress.city,
-          state: selectedAddress.state,
-          pincode: selectedAddress.pincode,
-          country: selectedAddress.country || 'India',
-        },
-        eventDate: selectedDate ? selectedDate.toISOString().split('T')[0] : '',
-        eventTime: eventTimeDisplay,
-        eventType: eventType,
-        venue: venue,
-        guestCount: parseInt(guestCount) || 0,
-        specialInstructions: instructions,
-        items: state.items.map(item => ({
-          id: item.id,
-          productId: item.productId,
-          name: item.name,
-          price: item.price,
-          quantity: item.quantity,
-          image: item.image,
-        })),
-        subtotal: subtotal,
-        deliveryCharge: deliveryCharge,
-        gst: gst,
-        couponDiscount: state.couponDiscount || 0,
-        couponCode: state.appliedCoupon || undefined,
-        grandTotal: grandTotal,
-        paymentMethod: 'cod',
-        notes: '',
-      };
-
-      console.log('📦 Creating order with data:', orderData);
-
-      const result = await orderService.createOrder(orderData);
-
-      if (result) {
-        console.log('✅ Order created:', result);
-        clearCart();
-        router.replace('/order-success');
-        show('Order placed successfully! 🎉');
-      } else {
-        show('Failed to place order', 'error');
-      }
-    } catch (error) {
-      console.error('❌ Failed to create order:', error);
-      show('Failed to place order', 'error');
-    } finally {
-      setProcessing(false);
-    }
-  };
-  */
-
   // ─── Simplified order creation - no event details required ──────────────────
   const placeOrder = async () => {
     if (!customerId) {
@@ -985,6 +908,7 @@ export default function CheckoutScreen() {
     }
 
     try {
+      setPlacingOrder(true);
       const orderData: OrderInput = {
         customerId: customerId,
         customerName: authState.user?.name || '',
@@ -1018,11 +942,13 @@ export default function CheckoutScreen() {
           image: item.image,
         })),
         subtotal: subtotal,
-        deliveryCharge: deliveryCharge,
-        gst: gst,
+        // ✅ delivery + GST forced to 0
+        deliveryCharge: 0,
+        gst: 0,
         couponDiscount: state.couponDiscount || 0,
         couponCode: state.appliedCoupon || undefined,
-        grandTotal: grandTotal,
+        // ✅ Grand Total = Subtotal − Discount
+        grandTotal: finalTotal,
         paymentMethod: 'cod',
         notes: '',
       };
@@ -1033,8 +959,35 @@ export default function CheckoutScreen() {
 
       if (result) {
         console.log('✅ Order created:', result);
+
+        // ─── ✅ STEP 1: Clear cart on the BACKEND ─────────────────────────────
+        try {
+          const clearRes = await axios.delete(`${API_BASE_URL}/cart/${customerId}`);
+          console.log('✅ Backend cart cleared after checkout:', clearRes.data);
+        } catch (clearErr: any) {
+          console.warn('⚠️ Backend cart clear failed (non-fatal):', clearErr?.response?.data || clearErr?.message);
+        }
+
+        // ─── ✅ STEP 2: Clear cart LOCALLY ────────────────────────────────────
         clearCart();
-        router.replace('/order-success');
+
+        // ─── ✅ STEP 3: Re-fetch cart to confirm backend is empty ─────────────
+        try {
+          await fetchCart(customerId);
+          console.log('✅ Cart re-fetched after checkout');
+        } catch (fetchErr) {
+          console.warn('⚠️ Cart refetch after checkout failed (non-fatal):', fetchErr);
+        }
+
+        // ─── ✅ STEP 4: Navigate to success screen with dynamic params ────────
+        router.replace({
+          pathname: '/order-success',
+          params: {
+            total: String(finalTotal),
+            orderId: String((result as any)?.orderId ?? (result as any)?.id ?? ''),
+            orderNumber: String((result as any)?.orderNumber ?? ''),
+          },
+        });
         show('Order placed successfully! 🎉');
       } else {
         show('Failed to place order', 'error');
@@ -1042,6 +995,8 @@ export default function CheckoutScreen() {
     } catch (error) {
       console.error('❌ Failed to create order:', error);
       show('Failed to place order', 'error');
+    } finally {
+      setPlacingOrder(false);
     }
   };
 
@@ -1051,7 +1006,7 @@ export default function CheckoutScreen() {
       show('Please add an address to continue', 'error');
       return;
     }
-    // Directly place order from address step
+    if (placingOrder) return;
     placeOrder();
   };
 
@@ -1177,7 +1132,7 @@ export default function CheckoutScreen() {
               })
             )}
 
-            {/* ─── Order Summary Preview ───────────────────────────────────── */}
+            {/* ─── Order Summary Preview — Delivery & GST removed ──────────── */}
             <View style={styles.summaryPreview}>
               <Text style={styles.summaryPreviewTitle}>Order Summary</Text>
               <View style={styles.summaryDivider} />
@@ -1185,158 +1140,42 @@ export default function CheckoutScreen() {
               {state.couponDiscount > 0 && (
                 <Row label="Discount" value={`-₹${state.couponDiscount.toLocaleString('en-IN')}`} green />
               )}
-              <Row label="Delivery" value={deliveryCharge === 0 ? 'FREE' : `₹${deliveryCharge}`} />
-              <Row label="GST (18%)" value={`₹${gst.toLocaleString('en-IN')}`} />
+              {/* ❌ Delivery row removed */}
+              {/* ❌ GST (18%) row removed */}
               <View style={styles.summaryDivider} />
               <View style={styles.summaryRow}>
                 <Text style={styles.totalLabel}>Grand Total</Text>
-                <Text style={styles.totalValue}>₹{grandTotal.toLocaleString('en-IN')}</Text>
+                <Text style={styles.totalValue}>₹{finalTotal.toLocaleString('en-IN')}</Text>
               </View>
             </View>
 
           </Animated.View>
         )}
 
-        {/* ── Commented out Step 1: Event Details ────────────────────────────── */}
-        {/* 
-        {step === 1 && (
-          <Animated.View entering={SlideInRight} style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Event Details</Text>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>Event Date <Text style={styles.required}>*</Text></Text>
-              <TouchableOpacity
-                style={[styles.pickerField, selectedDate && styles.pickerFieldFilled]}
-                onPress={() => setShowCal(true)}
-                activeOpacity={0.8}
-              >
-                <View style={[styles.pickerIcon, selectedDate && styles.pickerIconFilled]}>
-                  <Calendar
-                    color={selectedDate ? COLORS.white : COLORS.primary[600]}
-                    size={18}
-                  />
-                </View>
-                <Text style={[styles.pickerText, !selectedDate && styles.pickerPlaceholder]}>
-                  {selectedDate ? formatDisplay(selectedDate) : 'Tap to choose a date'}
-                </Text>
-                <ChevronRight
-                  color={selectedDate ? COLORS.primary[600] : COLORS.neutral[400]}
-                  size={18}
-                />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>Event Time</Text>
-              <TouchableOpacity
-                style={[styles.pickerField, styles.pickerFieldFilled]}
-                onPress={() => setShowTime(true)}
-                activeOpacity={0.8}
-              >
-                <View style={[styles.pickerIcon, styles.pickerIconFilled]}>
-                  <Clock color={COLORS.white} size={18} />
-                </View>
-                <Text style={styles.pickerText}>{eventTimeDisplay}</Text>
-                <ChevronRight color={COLORS.primary[600]} size={18} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>Event Type</Text>
-              <View style={styles.chipRow}>
-                {eventTypes.map(t => (
-                  <TouchableOpacity
-                    key={t}
-                    style={[styles.chip, eventType === t && styles.chipActive]}
-                    onPress={() => setEventType(t)}
-                  >
-                    <Text style={[styles.chipText, eventType === t && styles.chipTextActive]}>{t}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>Venue Address <Text style={styles.required}>*</Text></Text>
-              <View style={styles.formInput}>
-                <MapPin color={COLORS.neutral[400]} size={20} />
-                <TextInput
-                  style={styles.formInputText}
-                  placeholder="Enter venue address"
-                  placeholderTextColor={COLORS.neutral[400]}
-                  value={venue}
-                  onChangeText={setVenue}
-                  multiline
-                />
-              </View>
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>Guest Count <Text style={styles.required}>*</Text></Text>
-              <View style={styles.formInput}>
-                <ShoppingBag color={COLORS.neutral[400]} size={20} />
-                <TextInput
-                  style={styles.formInputText}
-                  placeholder="Number of guests"
-                  placeholderTextColor={COLORS.neutral[400]}
-                  value={guestCount}
-                  onChangeText={setGuestCount}
-                  keyboardType="number-pad"
-                />
-              </View>
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>Special Instructions</Text>
-              <View style={[styles.formInput, { height: 80, alignItems: 'flex-start', paddingTop: 12 }]}>
-                <TextInput
-                  style={[styles.formInputText, { textAlignVertical: 'top' }]}
-                  placeholder="Any special requests..."
-                  placeholderTextColor={COLORS.neutral[400]}
-                  value={instructions}
-                  onChangeText={setInstructions}
-                  multiline
-                />
-              </View>
-            </View>
-          </Animated.View>
-        )}
-        */}
 
       </ScrollView>
 
       <View style={styles.bottomBar}>
         <View>
           <Text style={styles.bottomTotalLabel}>Total</Text>
-          <Text style={styles.bottomTotalValue}>₹{grandTotal.toLocaleString('en-IN')}</Text>
+          <Text style={styles.bottomTotalValue}>₹{finalTotal.toLocaleString('en-IN')}</Text>
         </View>
         <Button
           onPress={handleNext}
           variant="gold"
           size="lg"
+          disabled={placingOrder}
           style={{ flex: 1, marginLeft: SPACING.md }}
         >
-          {addresses.length === 0 ? 'Add Address' : 'Place Order'}
+          {placingOrder
+            ? 'Placing Order...'
+            : addresses.length === 0
+              ? 'Add Address'
+              : 'Place Order'}
         </Button>
       </View>
 
-      {/* ─── Commented out Calendar and Time Picker modals ─────────────────────── */}
-      {/* 
-      <CalendarModal
-        visible={showCal}
-        onClose={() => setShowCal(false)}
-        selected={selectedDate}
-        onSelect={setSelectedDate}
-      />
-      <TimePickerModal
-        visible={showTime}
-        onClose={() => setShowTime(false)}
-        hour={timeHour}
-        minute={timeMin}
-        meridiem={timeMer}
-        onChange={(h, m, mer) => { setTimeHour(h); setTimeMin(m); setTimeMer(mer); }}
-      />
-      */}
+      
 
       <AddAddressModal
         visible={showAddAddress}

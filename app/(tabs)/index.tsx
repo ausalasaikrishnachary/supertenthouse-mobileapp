@@ -3058,7 +3058,7 @@ export default function HomeScreen() {
         <TouchableOpacity style={styles.searchBar} onPress={() => router.push('/search')} activeOpacity={0.9}>
           <Search color={COLORS.neutral[400]} size={20} />
           <Text style={styles.searchPlaceholder}>Search for decorations, packages...</Text>
-          <View style={styles.micBtn}><Mic color={COLORS.white} size={18} /></View>
+          {/* <View style={styles.micBtn}><Mic color={COLORS.white} size={18} /></View> */}
         </TouchableOpacity>
       </View>
 
@@ -3224,7 +3224,7 @@ export default function HomeScreen() {
         </View>
 
         {/* Why Choose Us */}
-        <View style={styles.section}>
+        {/* <View style={styles.section}>
           <SectionHeader title="Why Choose Super Tent House" subtitle="Trusted by 10,000+ customers" />
           <View style={styles.whyGrid}>
             {whyChoose.map((item, i) => {
@@ -3238,10 +3238,10 @@ export default function HomeScreen() {
               );
             })}
           </View>
-        </View>
+        </View> */}
 
         {/* Testimonials */}
-        <View style={styles.section}>
+        {/* <View style={styles.section}>
           <SectionHeader title="Customer Testimonials" subtitle="What our customers say" />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SPACING.md }}>
             {testimonials.map((t, i) => (
@@ -3260,10 +3260,10 @@ export default function HomeScreen() {
               </Animated.View>
             ))}
           </ScrollView>
-        </View>
+        </View> */}
 
         {/* Contact Us */}
-        <View style={styles.section}>
+        {/* <View style={styles.section}>
           <View style={styles.contactCard}>
             <Text style={styles.contactTitle}>Need Help?</Text>
             <Text style={styles.contactSubtitle}>Our team is available 24/7 to assist you</Text>
@@ -3282,7 +3282,7 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </View> */}
 
         <View style={{ height: 40 }} />
       </ScrollView>

@@ -307,19 +307,29 @@ export default function RegisterScreen() {
           </Animated.View>
 
           <Animated.View entering={FadeInDown.delay(200).duration(400)}>
-            <Text style={styles.label}>Phone Number</Text>
-            <View style={styles.inputWrap}>
-              <Phone color={COLORS.neutral[400]} size={20} style={styles.inputIcon} />
-              <TextInput 
-                style={styles.input} 
-                placeholder="+91 98765 43210" 
-                placeholderTextColor={COLORS.neutral[400]} 
-                value={phone} 
-                onChangeText={setPhone} 
-                keyboardType="phone-pad" 
-              />
-            </View>
-          </Animated.View>
+  <Text style={styles.label}>Phone Number</Text>
+  <View style={styles.inputWrap}>
+    <Phone color={COLORS.neutral[400]} size={20} style={styles.inputIcon} />
+    <TextInput
+      style={styles.input}
+      placeholder="9876543210"
+      placeholderTextColor={COLORS.neutral[400]}
+      value={phone}
+      onChangeText={(text) => {
+        // ✅ Strip non-digits and cap at 10
+        const digits = text.replace(/\D/g, '').slice(0, 10);
+        setPhone(digits);
+      }}
+      keyboardType="number-pad"
+      maxLength={10}
+      inputMode="numeric"
+      returnKeyType="done"
+    />
+  </View>
+  {phone.length > 0 && phone.length < 10 && (
+    <Text style={styles.phoneError}>Phone number must be 10 digits</Text>
+  )}
+</Animated.View>
 
           <Animated.View entering={FadeInDown.delay(250).duration(400)}>
             <Text style={styles.label}>Password <Text style={styles.required}>*</Text></Text>
@@ -477,6 +487,13 @@ const styles = StyleSheet.create({
     marginTop: SPACING.sm,
     marginBottom: 4 
   },
+  phoneError: {
+  fontSize: 12,
+  fontFamily: 'Inter-Regular',
+  color: COLORS.error,
+  marginTop: 4,
+  marginLeft: 4,
+},
   label: { fontSize: 13, fontFamily: 'Inter-Medium', color: COLORS.neutral[700], marginBottom: 6 },
   required: { color: COLORS.error },
   optional: { color: COLORS.neutral[400], fontWeight: '400' },

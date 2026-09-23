@@ -17,6 +17,7 @@ import { useWishlist } from '@/store/wishlist';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { addressService } from '@/services/address';
 import { orderService } from '@/services/address';
+import { FontAwesome } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
 
@@ -196,7 +197,7 @@ function SupportCard() {
 
         <TouchableOpacity style={sc.btnWA} onPress={handleWhatsApp} activeOpacity={0.85}>
           <View style={[sc.btnIconWrap, sc.btnIconWA]}>
-            <MessageCircle color={COLORS.white} size={18} />
+            <FontAwesome name="whatsapp" color={COLORS.white} size={20} />
           </View>
           <View>
             <Text style={[sc.btnLabel, { color: COLORS.white }]}>WhatsApp</Text>
