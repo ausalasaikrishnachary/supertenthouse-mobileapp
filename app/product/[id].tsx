@@ -6984,6 +6984,7 @@ export default function ProductDetailScreen() {
   const [activeImage, setActiveImage] = useState(0);
   const [qty, setQty] = useState(1);
   const [selectedColor, setSelectedColor] = useState(0);
+  const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'description' | 'specs' | 'reviews' | 'faq'>('description');
   const [addingToCart, setAddingToCart] = useState(false);
 
@@ -7085,7 +7086,12 @@ export default function ProductDetailScreen() {
     try {
       const productId = product.id;
       const productName = product.name;
-      const productPrice = product.price;
+      const selectedSizeOption = normalizedSizes.find(option => option.size === selectedSize);
+      if (normalizedSizes.length > 0 && !selectedSizeOption) {
+        show('Please select a size', 'error');
+        return;
+      }
+      const productPrice = selectedSizeOption?.price ?? product.price;
       const productImage = product.images?.[0] || '';
 
       console.log('📦 Adding to cart with customerId:', customerId);
@@ -7105,6 +7111,10 @@ export default function ProductDetailScreen() {
         price: productPrice,
         quantity: qty,
         type: 'product' as const,
+        selectedSize: selectedSize || undefined,
+        selectedColor: colors[selectedColor] || undefined,
+        availableSizes: normalizedSizes,
+        availableColors: colors,
       };
 
       await addItem(cartItem, customerId);
@@ -7165,6 +7175,12 @@ export default function ProductDetailScreen() {
   const features = Array.isArray(product.features) ? product.features : [];
   const colors = Array.isArray(product.colors) ? product.colors : ['#6C63FF'];
   const sizes = Array.isArray(product.sizes) ? product.sizes : [];
+  const normalizedSizes = sizes.map((entry: any) => typeof entry === 'string'
+    ? { size: entry, price: null }
+    : { size: String(entry?.size || entry?.name || entry?.label || ''), price: entry?.price == null ? null : Number(entry.price) }
+  ).filter(option => option.size);
+  const selectedSizeOption = normalizedSizes.find(option => option.size === selectedSize);
+  const displayedPrice = selectedSizeOption?.price ?? product.price;
 
   const getSpecsArray = () => {
     const specs = product.specifications;
@@ -7255,6 +7271,8 @@ export default function ProductDetailScreen() {
                   name: product.name,
                   price: product.price,
                   image: product.images?.[0] || '',
+                  quantity: qty,
+                  selectedColor: colors[selectedColor] || undefined,
                 };
                 toggle(product.id, customerId, productData);
                 show(isWishlisted ? 'Removed from wishlist' : 'Added to wishlist', 'info');
@@ -7280,14 +7298,14 @@ export default function ProductDetailScreen() {
             <RatingBadge rating={product.rating} />
             <Text style={styles.reviewCount}>{product.reviewCount} reviews</Text>
             {product.inStock ? (
-              <View style={styles.stockBadge}><View style={styles.stockDot} /><Text style={styles.stockText}>In Stock</Text></View>
+              <View style={styles.stockBadge}><View style={styles.stockDot} /><Text style={styles.stockText}>Available Stock: {product.stockCount}</Text></View>
             ) : (
               <View style={[styles.stockBadge, { backgroundColor: COLORS.error + '20' }]}><Text style={[styles.stockText, { color: COLORS.error }]}>Out of Stock</Text></View>
             )}
           </View>
 
           <View style={styles.priceRow}>
-            <Text style={styles.price}>₹{product.price.toLocaleString('en-IN')}</Text>
+            <Text style={styles.price}>₹{displayedPrice.toLocaleString('en-IN')}</Text>
             {product.originalPrice > product.price && (
               <>
                 <Text style={styles.originalPrice}>₹{product.originalPrice.toLocaleString('en-IN')}</Text>
@@ -7356,14 +7374,14 @@ export default function ProductDetailScreen() {
           )}
 
           {/* ─── Sizes ────────────────────────────────────────────────────────── */}
-          {sizes.length > 0 && (
+          {normalizedSizes.length > 0 && (
             <View style={styles.sizeSection}>
               <Text style={styles.sizeLabel}>Available Sizes</Text>
               <View style={styles.sizeRow}>
-                {sizes.map((size, i) => (
-                  <View key={i} style={styles.sizeTag}>
-                    <Text style={styles.sizeText}>{size}</Text>
-                  </View>
+                {normalizedSizes.map((option, i) => (
+                  <TouchableOpacity key={i} style={[styles.sizeTag, selectedSize === option.size && { borderColor: COLORS.primary[700], borderWidth: 2 }]} onPress={() => setSelectedSize(option.size)}>
+                    <Text style={styles.sizeText}>{option.size}{option.price != null ? ` · ₹${option.price.toLocaleString('en-IN')}` : ''}</Text>
+                  </TouchableOpacity>
                 ))}
               </View>
             </View>

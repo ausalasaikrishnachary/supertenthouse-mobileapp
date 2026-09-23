@@ -2885,12 +2885,12 @@ function cartReducer(state: CartState, action: CartAction): CartState {
     case 'SET_CART_ITEMS':
       return { ...state, items: action.payload };
     case 'ADD_ITEM': {
-      const existing = state.items.find((i) => i.productId === action.payload.productId);
+      const existing = state.items.find((i) => i.productId === action.payload.productId && i.selectedSize === action.payload.selectedSize && i.selectedColor === action.payload.selectedColor);
       if (existing) {
         return {
           ...state,
           items: state.items.map((i) =>
-            i.productId === action.payload.productId 
+            i.productId === action.payload.productId && i.selectedSize === action.payload.selectedSize && i.selectedColor === action.payload.selectedColor
               ? { ...i, quantity: i.quantity + action.payload.quantity } 
               : i
           ),
@@ -2958,6 +2958,7 @@ type CartContextType = {
   setCartItems: (items: CartItem[]) => void;
   syncCart: (customerId: string) => Promise<void>;
   fetchCart: (customerId: string) => Promise<CartItem[]>;
+  updateVariant: (item: CartItem, selectedSize?: string, selectedColor?: string, customerId?: string) => Promise<void>;
   totalItems: number;
   subtotal: number;
   deliveryCharge: number;
@@ -3018,6 +3019,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           const productId = String(item.product_id || '');
           const id = String(item.id || `${productId}_${Date.now()}`);
           
+          const parseOptions = (value: any) => { if (Array.isArray(value)) return value; try { return JSON.parse(value || '[]'); } catch { return []; } };
           return {
             id: id,
             productId: productId,
@@ -3026,6 +3028,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
             price: parseFloat(item.price) || 0,
             quantity: parseInt(item.quantity) || 1,
             type: 'product' as const,
+            selectedSize: item.selected_size || item.selectedSize || undefined,
+            selectedColor: item.selected_color || item.selectedColor || undefined,
+            availableSizes: parseOptions(item.available_sizes).map((entry: any) => typeof entry === 'string' ? { size: entry, price: null } : { size: String(entry?.size || entry?.name || entry?.label || ''), price: entry?.price == null ? null : Number(entry.price) }).filter((entry: any) => entry.size),
+            availableColors: parseOptions(item.available_colors),
           };
         });
         console.log('📦 Mapped items:', items);
@@ -3086,6 +3092,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
         price: item.price,
         image: item.image || '',
         quantity: item.quantity || 1,
+        selectedSize: item.selectedSize,
+        selectedColor: item.selectedColor,
       };
       
       console.log('📦 Sending to backend:', { customerId: finalCustomerId, product: productData });
@@ -3109,6 +3117,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
       console.error('Error details:', error.response?.data || error.message);
       setCartError('Cart is saved on this device and will sync when the server is available.');
     }
+  }, [fetchCart]);
+
+  const updateVariant = useCallback(async (item: CartItem, selectedSize?: string, selectedColor?: string, customerId?: string) => {
+    if (!customerId) return;
+    const response = await axios.put(`${API_BASE_URL}/cart/variant`, {
+      customerId, cartItemId: item.id, productId: item.productId, selectedSize, selectedColor,
+    });
+    if (!response.data?.success) throw new Error(response.data?.message || 'Unable to update variation');
+    await fetchCart(customerId);
   }, [fetchCart]);
 
   const removeItem = useCallback(async (id: string, customerId?: string) => {
@@ -3361,6 +3378,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const value = {
     state,
     addItem,
+    updateVariant,
     removeItem,
     updateQty,
     saveForLater,

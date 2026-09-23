@@ -57,6 +57,7 @@ function ListCard({ product, index }: { product: Product; index: number }) {
         <View style={lc.body}>
           <Text style={lc.category}>{product.categoryName || 'Category'}</Text>
           <Text style={lc.name} numberOfLines={2}>{product.name || 'Product'}</Text>
+          <Text style={lc.category}>Available Stock: {Number(product.stockCount ?? 0)}</Text>
 
           <View style={lc.ratingRow}>
             <RatingBadge rating={product.rating || 0} size="sm" />

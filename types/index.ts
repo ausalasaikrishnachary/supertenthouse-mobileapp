@@ -923,7 +923,7 @@ export type Product = {
   features: string[];
   specifications: Record<string, any> | { label: string; value: string }[];
   colors: string[];
-  sizes: string[];
+  sizes: ({ size: string; price: number | null } | string)[];
   color_images?: Record<string, string[]>;
   inStock: boolean;
   stockCount: number;
@@ -991,6 +991,8 @@ export type CartItem = {
   packageId?: string;
   selectedColor?: string;
   selectedSize?: string;
+  availableSizes?: { size: string; price: number | null }[];
+  availableColors?: string[];
   addons?: {
     id: string;
     name: string;

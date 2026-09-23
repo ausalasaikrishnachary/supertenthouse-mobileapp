@@ -18,6 +18,10 @@ interface OrderItem {
   price: number;
   quantity: number;
   image: string;
+  selectedSize?: string;
+  selectedColor?: string;
+  selected_size?: string;
+  selected_color?: string;
 }
 
 interface Order {
@@ -294,7 +298,7 @@ export default function OrdersScreen() {
                 {item.items && item.items.length > 0 ? (
                   item.items.slice(0, 2).map((it: any, i: number) => (
                     <Text key={i} style={styles.orderItem} numberOfLines={1}>
-                      • {it.name || it.product_name || 'Item'} × {it.quantity || 0}
+                      • {it.name || it.product_name || 'Item'}{(it.selectedSize || it.selected_size) ? ` · Size: ${it.selectedSize || it.selected_size}` : ''}{(it.selectedColor || it.selected_color) ? ` · Colour: ${it.selectedColor || it.selected_color}` : ''} × {it.quantity || 0} · ₹{Number(it.price || 0).toLocaleString('en-IN')}
                     </Text>
                   ))
                 ) : (

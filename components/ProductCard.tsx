@@ -2067,6 +2067,7 @@ function ProductCardBase({ product, index = 0, horizontal = false }: Props) {
   const productDiscount = typeof product?.discount === 'number' ? product.discount : 0;
   const productImages = getSafeImage(product?.images);
   const productColors = Array.isArray(product?.colors) ? product.colors : [];
+  const productStockCount = Number(product?.stockCount ?? 0);
   
   // ── Computed values ──────────────────────────────────────────────────────────
   const discountAmount = productOriginalPrice > productPrice
@@ -2197,6 +2198,7 @@ function ProductCardBase({ product, index = 0, horizontal = false }: Props) {
               <Text style={hStyles.category} numberOfLines={1}>{productCategory}</Text>
             ) : null}
             <Text style={hStyles.name} numberOfLines={2}>{productName}</Text>
+            <Text style={hStyles.category}>Available Stock: {productStockCount}</Text>
             {renderRating()}
             {renderColorSwatches()}
             <View style={hStyles.priceRow}>
@@ -2289,6 +2291,7 @@ function ProductCardBase({ product, index = 0, horizontal = false }: Props) {
             <Text style={vStyles.category} numberOfLines={1}>{productCategory}</Text>
           ) : null}
           <Text style={vStyles.name} numberOfLines={2}>{productName}</Text>
+          <Text style={vStyles.reviewCount}>Available Stock: {productStockCount}</Text>
 
           {/* Review count */}
           <Text style={vStyles.reviewCount}>

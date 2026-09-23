@@ -8743,10 +8743,10 @@ const parseColorsArray = (apiProduct: any): string[] => {
     }
   }
   if (apiProduct.color) return [apiProduct.color];
-  return ['#6C63FF'];
+  return [];
 };
 
-const parseSizesArray = (apiProduct: any): string[] => {
+const parseSizesArray = (apiProduct: any): ({ size: string; price: number | null } | string)[] => {
   if (apiProduct.sizes) {
     if (Array.isArray(apiProduct.sizes)) return apiProduct.sizes;
     if (typeof apiProduct.sizes === 'string') {
@@ -8756,7 +8756,7 @@ const parseSizesArray = (apiProduct: any): string[] => {
       } catch (e) {}
     }
   }
-  return ['Standard'];
+  return [];
 };
 
 const parseSpecifications = (apiProduct: any): Record<string, any> => {
@@ -8923,7 +8923,7 @@ const mapProduct = (apiProduct: any): Product => {
     categoryName: apiProduct.category_name || apiProduct.categoryName || '',
     rating: Number(apiProduct.rating) || 0,
     reviewCount: Number(apiProduct.review_count) || Number(apiProduct.reviewCount) || 0,
-    inStock: Number(apiProduct.available_stock) > 0 || Boolean(apiProduct.in_stock) || true,
+    inStock: apiProduct.available_stock != null ? Number(apiProduct.available_stock) > 0 : Boolean(apiProduct.in_stock ?? true),
     isTrending: Boolean(apiProduct.is_trending || apiProduct.isTrending),
     isBestSeller: Boolean(apiProduct.is_best_seller || apiProduct.isBestSeller),
     features: features,
@@ -8931,7 +8931,7 @@ const mapProduct = (apiProduct: any): Product => {
     colors: colors,
     sizes: sizes,
     color_images: colorImages,
-    stockCount: Number(apiProduct.available_stock) || Number(apiProduct.stock_count) || Number(apiProduct.stockCount) || 10,
+    stockCount: Number(apiProduct.available_stock ?? apiProduct.stock_count ?? apiProduct.stockCount ?? 0),
     soldCount: Number(apiProduct.sold_count) || Number(apiProduct.soldCount) || 0,
     isFeatured: Boolean(apiProduct.is_featured || apiProduct.isFeatured),
     brand: apiProduct.product_brand || apiProduct.brand || '',

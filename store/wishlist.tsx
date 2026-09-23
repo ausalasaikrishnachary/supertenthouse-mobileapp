@@ -4,7 +4,7 @@ import { API_BASE_URL } from '@/services/api';
 import { appStorage } from '@/utils/storage';
 
 export type WishlistItemType = 'product' | 'package';
-export type WishlistEntry = { id: string; type: WishlistItemType };
+export type WishlistEntry = { id: string; type: WishlistItemType; quantity?: number; selectedColor?: string };
 type WishlistState = { entries: WishlistEntry[]; productIds: string[]; isHydrated: boolean };
 type Action =
   | { type: 'SET'; payload: WishlistEntry[] }
@@ -24,7 +24,8 @@ const normalizeEntries = (value: unknown): WishlistEntry[] => {
     // API rows contain both a wishlist row `id` and the actual item ID.
     // Always prefer the explicit item fields; local entries use `id` as fallback.
     const id = row.item_id ?? row.product_id ?? row.productId ?? row.id;
-    return id == null ? null : { id: String(id), type: normalizeType(row.type ?? row.item_type ?? row.itemType) };
+    return id == null ? null : { id: String(id), type: normalizeType(row.type ?? row.item_type ?? row.itemType),
+      quantity: Math.max(1, Number.parseInt(row.quantity, 10) || 1), selectedColor: row.selectedColor ?? row.selected_color ?? undefined };
   }).filter((item): item is WishlistEntry => Boolean(item));
   return Array.from(new Map(entries.map(entry => [keyOf(entry), entry])).values());
 };
@@ -88,7 +89,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const toggle = useCallback(async (id: string, customerId?: string, itemData?: any, itemType: WishlistItemType = 'product') => {
-    const entry = { id: String(id), type: itemType };
+    const entry = { id: String(id), type: itemType, quantity: Math.max(1, Number(itemData?.quantity) || 1), selectedColor: itemData?.selectedColor || undefined };
     const exists = state.entries.some(current => keyOf(current) === keyOf(entry));
     dispatch({ type: 'TOGGLE', payload: entry });
     if (!customerId) return;
@@ -99,6 +100,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
         await axios.post(`${API_BASE_URL}/wishlist/add`, {
           customerId, productId: entry.id, itemType,
           productName: itemData?.name || '', price: itemData?.price || 0, image: itemData?.image || '',
+          quantity: entry.quantity, selectedColor: entry.selectedColor,
         });
       }
     } catch (error) {
@@ -113,7 +115,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
 
   const syncWishlist = useCallback(async (customerId: string) => {
     for (const entry of state.entries) {
-      await axios.post(`${API_BASE_URL}/wishlist/add`, { customerId, productId: entry.id, itemType: entry.type });
+      await axios.post(`${API_BASE_URL}/wishlist/add`, { customerId, productId: entry.id, itemType: entry.type, quantity: entry.quantity, selectedColor: entry.selectedColor });
     }
   }, [state.entries]);
 

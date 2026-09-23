@@ -940,6 +940,8 @@ export default function CheckoutScreen() {
           price: item.price,
           quantity: item.quantity,
           image: item.image,
+          selectedSize: item.selectedSize,
+          selectedColor: item.selectedColor,
         })),
         subtotal: subtotal,
         // ✅ delivery + GST forced to 0

@@ -35,6 +35,10 @@ interface OrderItem {
   price: number;
   quantity: number;
   image: string;
+  selectedSize?: string;
+  selectedColor?: string;
+  selected_size?: string;
+  selected_color?: string;
 }
 
 interface Order {
@@ -257,6 +261,8 @@ export default function OrderDetailsScreen() {
           quantity: item.quantity || 0,
           price: item.price || 0,
           total: (item.price || 0) * (item.quantity || 0),
+          size: item.selectedSize || item.selected_size,
+          color: item.selectedColor || item.selected_color,
         })),
         subtotal: order.subtotal || 0,
         deliveryCharge: order.delivery_charge || 0,
@@ -334,6 +340,8 @@ export default function OrderDetailsScreen() {
           quantity: item.quantity || 0,
           price: item.price || 0,
           total: (item.price || 0) * (item.quantity || 0),
+          size: item.selectedSize || item.selected_size,
+          color: item.selectedColor || item.selected_color,
         })),
         subtotal: order.subtotal || 0,
         deliveryCharge: order.delivery_charge || 0,
@@ -518,6 +526,8 @@ export default function OrderDetailsScreen() {
               />
               <View style={styles.itemBody}>
                 <Text style={styles.itemName} numberOfLines={2}>{item.name || 'Item'}</Text>
+                {(item.selectedSize || item.selected_size) ? <Text style={styles.itemQty}>Size: {item.selectedSize || item.selected_size}</Text> : null}
+                {(item.selectedColor || item.selected_color) ? <Text style={styles.itemQty}>Colour: {item.selectedColor || item.selected_color}</Text> : null}
                 <Text style={styles.itemQty}>Qty: {item.quantity || 0}</Text>
                 <Text style={styles.itemPrice}>₹{((item.price || 0) * (item.quantity || 0)).toLocaleString('en-IN')}</Text>
               </View>

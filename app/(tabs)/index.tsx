@@ -2793,6 +2793,7 @@ function BestSellerCard({ product, rank, index }: { product: Product; rank: numb
           <View style={bs.footer}>
             <View>
               <Text style={bs.price}>₹{product.price.toLocaleString('en-IN')}</Text>
+              <Text style={bs.category}>Available Stock: {Number(product.stockCount ?? 0)}</Text>
               {product.originalPrice > product.price && (
                 <Text style={bs.original}>₹{product.originalPrice.toLocaleString('en-IN')}</Text>
               )}

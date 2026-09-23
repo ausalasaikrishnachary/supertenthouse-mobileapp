@@ -61,6 +61,7 @@ export default function CartScreen() {
     addItem,
     isHydrated,
     cartError,
+    updateVariant,
   } = useCart();
   const { state: authState } = useAuth();
   const { state: wishlistState, toggle, remove: removeFromWishlist, fetchWishlist } = useWishlist();
@@ -407,6 +408,14 @@ export default function CartScreen() {
 
   // ─── Render cart item ─────────────────────────────────────────────────────
   const renderItem = ({ item }: { item: any }) => {
+    const changeVariant = async (selectedSize = item.selectedSize, selectedColor = item.selectedColor) => {
+      try {
+        setSyncing(true);
+        await updateVariant(item, selectedSize, selectedColor, customerId);
+      } catch (error: any) {
+        show(error.response?.data?.message || 'Failed to update variation', 'error');
+      } finally { setSyncing(false); }
+    };
     return (
       <View style={styles.cartItem}>
         <Image 
@@ -417,6 +426,25 @@ export default function CartScreen() {
         <View style={styles.itemBody}>
           <Text style={styles.itemName} numberOfLines={2}>{item.name}</Text>
           <Text style={styles.itemPrice}>₹{item.price.toLocaleString('en-IN')}</Text>
+          {item.availableSizes?.length > 0 && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+              {item.availableSizes.map((option: any) => (
+                <TouchableOpacity key={option.size} onPress={() => changeVariant(option.size, item.selectedColor)} disabled={syncing}
+                  style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: item.selectedSize === option.size ? COLORS.primary[700] : COLORS.neutral[300] }}>
+                  <Text style={{ fontSize: 11 }}>Size: {option.size}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+          {item.availableColors?.length > 0 && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+              {item.availableColors.map((color: string) => (
+                <TouchableOpacity key={color} onPress={() => changeVariant(item.selectedSize, color)} disabled={syncing}
+                  accessibilityLabel={`Colour ${color}`}
+                  style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: color, borderWidth: item.selectedColor === color ? 3 : 1, borderColor: item.selectedColor === color ? COLORS.primary[700] : COLORS.neutral[300] }} />
+              ))}
+            </View>
+          )}
           <View style={styles.itemActions}>
             <View style={styles.qtyRow}>
               <TouchableOpacity 

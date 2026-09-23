@@ -22,6 +22,8 @@ type WishlistDisplayItem = {
   images: string[];
   rating: number;
   reviewCount: number;
+  quantity: number;
+  selectedColor?: string;
 };
 
 export default function WishlistScreen() {
@@ -64,12 +66,14 @@ export default function WishlistScreen() {
           if (entry.type === 'package') {
             const item = packageMap.get(entry.id);
             return item ? { id: String(item.id), itemType: 'package' as const, name: item.name, price: item.price,
-              images: item.images?.length ? item.images : [item.image].filter(Boolean), rating: item.rating || 0, reviewCount: item.reviewCount || 0 } : null;
+              images: item.images?.length ? item.images : [item.image].filter(Boolean), rating: item.rating || 0, reviewCount: item.reviewCount || 0,
+              quantity: entry.quantity || 1, selectedColor: entry.selectedColor } : null;
           }
           const item = productMap.get(entry.id);
           return item ? { id: String(item.id), itemType: 'product' as const, name: item.name, price: item.price,
-            images: item.images || [], rating: item.rating || 0, reviewCount: item.reviewCount || 0 } : null;
-        }).filter((item): item is WishlistDisplayItem => Boolean(item));
+            images: item.images || [], rating: item.rating || 0, reviewCount: item.reviewCount || 0,
+            quantity: entry.quantity || 1, selectedColor: entry.selectedColor } : null;
+        }).filter(Boolean) as WishlistDisplayItem[];
         setProducts(resolved);
         console.log('📦 Wishlist items loaded:', resolved.length);
       } else {
@@ -137,7 +141,8 @@ export default function WishlistScreen() {
         name: product.name,
         image: product.images?.[0] || 'https://via.placeholder.com/300x300',
         price: product.price,
-        quantity: 1,
+        quantity: product.quantity,
+        selectedColor: product.selectedColor,
         type: product.itemType,
         ...(product.itemType === 'package' ? { packageId: product.id } : {}),
       };
@@ -340,6 +345,8 @@ export default function WishlistScreen() {
           </View>
           
           <Text style={styles.cardPrice}>₹{item.price.toLocaleString('en-IN')}</Text>
+          {item.selectedColor ? <Text style={styles.ratingText}>Colour: {item.selectedColor}</Text> : null}
+          <Text style={styles.ratingText}>Quantity: {item.quantity}</Text>
           
           <View style={styles.cardActions}>
             <TouchableOpacity 

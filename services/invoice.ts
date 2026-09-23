@@ -37,6 +37,8 @@ export interface InvoiceData {
     quantity: number;
     price: number;
     total: number;
+    size?: string;
+    color?: string;
   }>;
   subtotal: number;
   deliveryCharge: number;
@@ -292,7 +294,7 @@ export const generateInvoiceHTML = (data: InvoiceData): string => {
             <tbody>
               ${data.items.map(item => `
                 <tr>
-                  <td class="item-name">${item.name}</td>
+                  <td class="item-name">${item.name}${item.size ? `<div style="font-size:11px;color:#64748b">Size: ${item.size}</div>` : ''}${item.color ? `<div style="font-size:11px;color:#64748b">Colour: ${item.color}</div>` : ''}</td>
                   <td style="text-align: center;">${item.quantity}</td>
                   <td style="text-align: right;">₹${item.price.toLocaleString('en-IN')}</td>
                   <td style="text-align: right; font-weight: 600;">₹${item.total.toLocaleString('en-IN')}</td>
